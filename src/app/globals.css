@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-primary-50: #e6faf9;
+  --color-primary-100: #ccf5f3;
+  --color-primary-200: #9aeee9;
+  --color-primary-300: #62e5de;
+  --color-primary-400: #36d1cf;
+  --color-primary-500: #2bbfbf;
+  --color-primary-600: #239999;
+  --color-primary-700: #1c7a7a;
+  --color-primary-800: #155c5c;
+  --color-primary-900: #0d3d3d;
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+@keyframes icon-bloom-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+}

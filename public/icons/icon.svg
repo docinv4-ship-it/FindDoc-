@@ -1,0 +1,37 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#36d1cf"/>
+      <stop offset="100%" stop-color="#1a8f8d"/>
+    </linearGradient>
+    <linearGradient id="petalGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.7"/>
+    </linearGradient>
+    <radialGradient id="centerGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#e6faf9"/>
+      <stop offset="100%" stop-color="#36d1cf"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  <g transform="translate(256, 256)">
+    <g transform="rotate(0)">
+      <path d="M0,-150 C30,-150 52,-128 52,-98 C52,-68 30,-46 0,-46 C-30,-46 -52,-68 -52,-98 C-52,-128 -30,-150 0,-150 Z" fill="url(#petalGrad)"/>
+    </g>
+    <g transform="rotate(72)">
+      <path d="M0,-150 C30,-150 52,-128 52,-98 C52,-68 30,-46 0,-46 C-30,-46 -52,-68 -52,-98 C-52,-128 -30,-150 0,-150 Z" fill="url(#petalGrad)"/>
+    </g>
+    <g transform="rotate(144)">
+      <path d="M0,-150 C30,-150 52,-128 52,-98 C52,-68 30,-46 0,-46 C-30,-46 -52,-68 -52,-98 C-52,-128 -30,-150 0,-150 Z" fill="url(#petalGrad)"/>
+    </g>
+    <g transform="rotate(216)">
+      <path d="M0,-150 C30,-150 52,-128 52,-98 C52,-68 30,-46 0,-46 C-30,-46 -52,-68 -52,-98 C-52,-128 -30,-150 0,-150 Z" fill="url(#petalGrad)"/>
+    </g>
+    <g transform="rotate(288)">
+      <path d="M0,-150 C30,-150 52,-128 52,-98 C52,-68 30,-46 0,-46 C-30,-46 -52,-68 -52,-98 C-52,-128 -30,-150 0,-150 Z" fill="url(#petalGrad)"/>
+    </g>
+    <circle cx="0" cy="0" r="42" fill="url(#centerGrad)"/>
+    <circle cx="0" cy="0" r="18" fill="#1a8f8d" opacity="0.85"/>
+  </g>
+</svg>
