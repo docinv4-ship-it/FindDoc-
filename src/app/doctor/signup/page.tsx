@@ -42,10 +42,10 @@ export default function DoctorSignupPage() {
         });
         if (doctorError) { setError("Failed to create doctor profile"); return; }
 
-        // Record consent
+        // Record consent - Headers fixed with charset=utf-8
         await fetch("/api/consent", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json; charset=utf-8" },
           body: JSON.stringify({
             user_id: user.id,
             user_type: "doctor",
@@ -55,7 +55,7 @@ export default function DoctorSignupPage() {
         });
         await fetch("/api/consent", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json; charset=utf-8" },
           body: JSON.stringify({
             user_id: user.id,
             user_type: "doctor",
