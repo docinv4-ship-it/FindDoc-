@@ -18,7 +18,7 @@ export default function DoctorLayout({ children }: { children: React.ReactNode }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
-  // 🔥 CRITICAL FIX: Identify if this is a strict doctor portal route or a public dynamic profile ID
+  // 🔥 Identify if this is an explicit doctor dashboard/portal route
   const portalRoutes = [
     "/doctor/dashboard",
     "/doctor/agenda",
@@ -40,14 +40,20 @@ export default function DoctorLayout({ children }: { children: React.ReactNode }
   ];
 
   const isAuthPage = pathname === "/doctor/login" || pathname === "/doctor/signup";
-  
-  // Check if current route is part of explicit portal dashboard screens
   const isStrictPortalRoute = portalRoutes.some((route) => pathname.startsWith(route));
 
-  useEffect(() => {
-    // If it's a public dynamic profile (not auth, not explicit portal), skip execution entirely
-    if (isAuthPage || !isStrictPortalRoute) return;
+  // 🔥 100% FIXED: If it's a patient viewing a public doctor profile, stop everything immediately and just render children!
+  if (!isAuthPage && !isStrictPortalRoute) {
+    return <>{children}</>;
+  }
 
+  // 🔥 100% FIXED: If it's a simple login or signup page, bypass hooks and render
+  if (isAuthPage) {
+    return <>{children}</>;
+  }
+
+  // Next hooks will only run for authenticated doctor dashboard routes
+  useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -57,12 +63,9 @@ export default function DoctorLayout({ children }: { children: React.ReactNode }
       }
     };
     getUser();
-  }, [supabase, isAuthPage, isStrictPortalRoute]);
+  }, [supabase]);
 
   useEffect(() => {
-    // Escape hooks context if not explicitly inside the dashboard area
-    if (isAuthPage || !isStrictPortalRoute) return;
-
     const fetchUnread = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -80,7 +83,7 @@ export default function DoctorLayout({ children }: { children: React.ReactNode }
       setUnreadNotifs(notifCount || 0);
     };
     fetchUnread();
-  }, [supabase, pathname, isAuthPage, isStrictPortalRoute]);
+  }, [supabase, pathname]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -108,15 +111,6 @@ export default function DoctorLayout({ children }: { children: React.ReactNode }
     { name: "Change Password", href: "/doctor/password", icon: Lock },
   ];
 
-  // 1. Direct Return for Login / Signup 
-  if (isAuthPage) return <>{children}</>;
-
-  // 2. Direct Bypass for Patients viewing public profiles like `/doctor/[id]`
-  if (!isStrictPortalRoute) {
-    return <>{children}</>;
-  }
-
-  // 3. Render Dashboard Chrome Layout ONLY for validated doctor sections
   return (
     <SessionTimeoutProvider>
     <div className="min-h-screen bg-gray-50">
