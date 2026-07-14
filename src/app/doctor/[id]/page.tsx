@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useState, useEffect, Suspense, useRef } from "react";
+import { useState, useEffect, Suspense, useRef, use } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
@@ -12,7 +11,9 @@ interface DoctorInfo { id: string; full_name: string; specialization: string; ph
 interface ClinicInfo { id: string; name: string; address: string; city: string; state: string | null; phone: string | null; consultation_fee: number; slot_duration_minutes: number; booking_mode: string; }
 interface Slot { start_time: string; end_time: string; is_available: boolean; }
 
-function DoctorDetailContent() {
+// 🔥 Changed to receive React 19 / Next.js 15+ dynamic route params safely
+function DoctorDetailContent({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params);
   const searchParams = useSearchParams();
   const router = useRouter();
   const [doctor, setDoctor] = useState<DoctorInfo | null>(null);
@@ -30,7 +31,8 @@ function DoctorDetailContent() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
-  const doctorId = searchParams.get("id")?.replace("/", "") || "";
+  // 🔥 Fixed ID detection: Extract from route params first, fallback to query search param
+  const doctorId = resolvedParams?.id || searchParams.get("id")?.replace("/", "") || "";
   const clinicParam = searchParams.get("clinic");
 
   useEffect(() => {
@@ -346,6 +348,11 @@ function ChatWindow({ doctorId, clinicId, doctorName, clinicName, onClose }: { d
   );
 }
 
-export default function DoctorDetailPage() {
-  return <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-500" /></div>}><DoctorDetailContent /></Suspense>;
+// 🔥 Wrap in dynamic Suspense and handle params correctly
+export default function DoctorDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-500" /></div>}>
+      <DoctorDetailContent params={params} />
+    </Suspense>
+  );
 }
