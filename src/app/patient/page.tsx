@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -165,8 +166,7 @@ export default function PatientSearchPage() {
                       </div>
                     )}
 
-                    {/* ✅ Ab ye click par user ko perfect route "/patient/doctor/ID" par bhejey ga bina kisi 404 error ke */}
-                    <button onClick={() => router.push(`/patient/doctor/${doctor.id}`)} className="mt-4 w-full py-2.5 bg-primary-500 hover:bg-primary-600 text-white font-medium rounded-lg transition-colors">
+                    <button onClick={() => router.push(`/doctor/${doctor.id}`)} className="mt-4 w-full py-2.5 bg-primary-500 hover:bg-primary-600 text-white font-medium rounded-lg transition-colors">
                       View Profile & Book
                     </button>
                   </div>
