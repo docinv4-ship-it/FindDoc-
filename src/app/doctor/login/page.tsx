@@ -6,26 +6,49 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Mail, Lock, Loader2, Calendar } from "lucide-react";
 
+// ✅ Supabase client ko component se BAHAR nikaal diya taake ye har render par naya na bane
+const supabase = createClient();
+
 export default function DoctorLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const supabase: any = createClient();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
+    
     try {
-      const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
-      if (authError) { setError(authError.message); return; }
-      const { data: { user } } = await supabase.auth.getUser();
+      // ✅ 1. Email ko trim kiya aur destructure karke seedha data nikala
+      const { data, error: authError } = await supabase.auth.signInWithPassword({ 
+        email: email.trim(), 
+        password 
+      });
+      
+      if (authError) { 
+        setError(authError.message); 
+        return; 
+      }
+
+      // ✅ 2. Doosra getUser() call karne ki zaroorat nahi, data.user pehle se maujood hai
+      const user = data?.user;
+      
       if (user) {
-        const { data: doctorData } = await supabase.from("doctors").select("id, is_onboarded").eq("user_id", user.id).single();
-        if (!doctorData) { setError("Account not found. Please sign up first."); await supabase.auth.signOut(); return; }
+        const { data: doctorData, error: dbError } = await supabase
+          .from("doctors")
+          .select("id, is_onboarded")
+          .eq("user_id", user.id)
+          .single();
+          
+        if (dbError || !doctorData) { 
+          setError("Account not found. Please sign up first."); 
+          await supabase.auth.signOut(); 
+          return; 
+        }
+        
         router.push(doctorData.is_onboarded ? "/doctor/dashboard" : "/doctor/onboarding");
       }
     } catch (err) {
