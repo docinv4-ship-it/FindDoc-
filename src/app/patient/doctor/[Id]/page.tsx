@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useEffect, Suspense, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useParams, useRouter } from "next/navigation"; // ✅ useParams add kiya
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
-import { User, MapPin, Phone, Clock, DollarSign, Calendar, ChevronLeft, ChevronRight, Loader2, Check, AlertCircle, Stethoscope, MessageCircle, X, Send, Star } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { User, MapPin, Phone, Clock, DollarSign, Calendar, ChevronLeft, ChevronRight, Loader2, Check, AlertCircle, MessageCircle, X, Send, Star } from "lucide-react";
 
 interface DoctorInfo { id: string; full_name: string; specialization: string; phone: string | null; email: string; }
 interface ClinicInfo { id: string; name: string; address: string; city: string; state: string | null; phone: string | null; consultation_fee: number; slot_duration_minutes: number; booking_mode: string; }
@@ -13,6 +12,7 @@ interface Slot { start_time: string; end_time: string; is_available: boolean; }
 
 function DoctorDetailContent() {
   const searchParams = useSearchParams();
+  const params = useParams(); // ✅ Route params access karne ke liye
   const router = useRouter();
   const [doctor, setDoctor] = useState<DoctorInfo | null>(null);
   const [clinics, setClinics] = useState<ClinicInfo[]>([]);
@@ -29,7 +29,8 @@ function DoctorDetailContent() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
-  const doctorId = searchParams.get("id")?.replace("/", "") || "";
+  // ✅ Ab ye URL se directly ID bilkul sahi extract karega bina kisi query param ke!
+  const doctorId = typeof params.id === "string" ? params.id : "";
   const clinicParam = searchParams.get("clinic");
 
   useEffect(() => {
