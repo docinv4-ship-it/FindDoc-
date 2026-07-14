@@ -25,9 +25,8 @@ export default function NotFound() {
           >
             <Home className="w-5 h-5" /> Go Home
           </Link>
-          {/* ✅ Ye path '/search' se badal kar '/patient' kar diya hai */}
           <Link
-            href="/patient"
+            href="/search"
             className="px-6 py-3 border border-gray-200 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
           >
             <Search className="w-5 h-5" /> Find Doctors
