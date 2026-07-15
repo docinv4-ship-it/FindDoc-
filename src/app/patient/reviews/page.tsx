@@ -1,9 +1,21 @@
 "use client";
 
 import { Suspense, useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, Phone, Lock, Star, Stethoscope, User, Send, AlertCircle, Check } from "lucide-react";
+import { 
+  Loader2, 
+  Star, 
+  Stethoscope, 
+  User, 
+  Send, 
+  AlertCircle, 
+  Check, 
+  Mail, 
+  ShieldCheck, 
+  Calendar 
+} from "lucide-react";
+import AuthGuard from "@/components/AuthGuard";
 
 interface CompletedAppointment {
   id: string;
@@ -15,13 +27,10 @@ interface CompletedAppointment {
 }
 
 function PatientReviewsContent() {
-  const [step, setStep] = useState<"phone" | "otp" | "list" | "submit">("phone");
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [verificationId, setVerificationId] = useState<string | null>(null);
-  const [sendingOtp, setSendingOtp] = useState(false);
-  const [verifyingOtp, setVerifyingOtp] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [patientId, setPatientId] = useState<string | null>(null);
+  const [step, setStep] = useState<"list" | "submit">("list");
+  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -30,110 +39,138 @@ function PatientReviewsContent() {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const router = useRouter();
-  const searchParams = useSearchParams();
+  
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
-  const handleSendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSendingOtp(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/otp/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phone.trim(), purpose: "lookup" }),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setVerificationId(data.verification_id);
-        setStep("otp");
-      } else {
-        setError(data.error || "Failed to send OTP");
-      }
-    } catch {
-      setError("An error occurred");
-    }
-    setSendingOtp(false);
-  };
+  // Load User Session & Resolve Patient Identity
+  useEffect(() => {
+    const initializeReviews = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setCurrentUser(user);
+          
+          // Step 1: Match by Auth User ID
+          let patientProfile = null;
+          const { data: profileById } = await supabase
+            .from("patients")
+            .select("id")
+            .eq("id", user.id)
+            .maybeSingle();
 
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setVerifyingOtp(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/otp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ verification_id: verificationId, otp: otp.trim() }),
-      });
-      if (response.ok) {
-        await fetchAppointments();
-      } else {
-        setError("Invalid OTP");
-      }
-    } catch {
-      setError("An error occurred");
-    }
-    setVerifyingOtp(false);
-  };
+          patientProfile = profileById;
 
-  const fetchAppointments = async () => {
+          // Step 2: Fallback to Email Lookup if ID match is not linked yet
+          if (!patientProfile && user.email) {
+            const { data: profileByEmail } = await supabase
+              .from("patients")
+              .select("id")
+              .eq("email", user.email)
+              .maybeSingle();
+            patientProfile = profileByEmail;
+          }
+
+          if (patientProfile) {
+            setPatientId(patientProfile.id);
+            await fetchAppointments(patientProfile.id);
+          } else {
+            setError("No patient profile associated with this secure account.");
+            setLoading(false);
+          }
+        } else {
+          setError("No authenticated session found.");
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error("Initialization error:", err);
+        setError("Failed to establish secure session connection.");
+        setLoading(false);
+      }
+    };
+
+    initializeReviews();
+  }, [supabase]);
+
+  // Fetch completed appointments and their review flags
+  const fetchAppointments = async (pId: string) => {
     setLoading(true);
     try {
-      const { data: patientData } = await supabase.from("patients").select("id").eq("phone", phone.trim()).single();
-      if (!patientData) {
-        setError("No patient found with this phone number");
+      const { data: appointmentsData, error: aptError } = await supabase
+        .from("appointments")
+        .select(`
+          id, 
+          appointment_date, 
+          start_time, 
+          status, 
+          doctors (id, full_name, specialization), 
+          clinics (id, name)
+        `)
+        .eq("patient_id", pId)
+        .eq("status", "completed")
+        .order("appointment_date", { ascending: false });
+
+      if (aptError) {
+        setError("Failed to retrieve completed appointments.");
         setLoading(false);
         return;
       }
-      const { data: appointmentsData } = await supabase
-        .from("appointments")
-        .select(`id, appointment_date, start_time, status, doctors (id, full_name, specialization), clinics (id, name)`)
-        .eq("patient_id", patientData.id)
-        .eq("status", "completed")
-        .order("appointment_date", { ascending: false });
+
       if (appointmentsData) {
-        const { data: reviewsData } = await supabase.from("reviews").select("appointment_id").eq("patient_id", patientData.id);
-        const reviewedIds = new Set(reviewsData?.map((r: { appointment_id: string }) => r.appointment_id) || []);
-        const withReviewFlag = appointmentsData.map((apt: CompletedAppointment) => ({
-          ...apt,
+        // Fetch all patient reviews to cross-reference
+        const { data: reviewsData } = await supabase
+          .from("reviews")
+          .select("appointment_id")
+          .eq("patient_id", pId);
+
+        const reviewedIds = new Set(
+          reviewsData?.map((r: { appointment_id: string }) => r.appointment_id) || []
+        );
+
+        const withReviewFlag = appointmentsData.map((apt: any) => ({
+          id: apt.id,
+          appointment_date: apt.appointment_date,
+          start_time: apt.start_time,
+          doctors: apt.doctors,
+          clinics: apt.clinics,
           has_reviewed: reviewedIds.has(apt.id),
         }));
+
         setAppointments(withReviewFlag);
-        setStep("list");
       }
-    } catch {
-      setError("Failed to load appointments");
+    } catch (err) {
+      console.error("Error fetching completed appointments:", err);
+      setError("An error occurred while loading appointments.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedAppointment) return;
+    if (!selectedAppointment || !patientId) return;
     setSubmitting(true);
     setError(null);
     try {
-      const { data: patientData } = await supabase.from("patients").select("id").eq("phone", phone.trim()).single();
-      if (!patientData) {
-        setError("Patient not found");
-        setSubmitting(false);
-        return;
-      }
       const { error: reviewError } = await supabase.from("reviews").insert({
         doctor_id: selectedAppointment.doctors?.id,
-        patient_id: patientData.id,
+        patient_id: patientId,
         appointment_id: selectedAppointment.id,
         rating,
         comment: comment.trim() || null,
         is_verified: true,
       });
+
       if (reviewError) {
-        setError("Failed to submit review");
+        console.error("Review insert error:", reviewError);
+        setError("Failed to submit your review. Please try again.");
       } else {
         setSuccess("Review submitted successfully!");
-        setAppointments((prev) => prev.map((a) => a.id === selectedAppointment.id ? { ...a, has_reviewed: true } : a));
+        setAppointments((prev) => 
+          prev.map((a) => a.id === selectedAppointment.id ? { ...a, has_reviewed: true } : a)
+        );
         setTimeout(() => {
           setStep("list");
           setSelectedAppointment(null);
@@ -142,13 +179,31 @@ function PatientReviewsContent() {
           setComment("");
         }, 2000);
       }
-    } catch {
-      setError("An error occurred");
+    } catch (err) {
+      console.error("Review submit error:", err);
+      setError("An unexpected error occurred while saving your feedback.");
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
-  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const formatDate = (dateStr: string) => 
+    new Date(dateStr).toLocaleDateString("en-US", { 
+      month: "short", 
+      day: "numeric", 
+      year: "numeric" 
+    });
+
+  if (loading && appointments.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
+        <Loader2 className="w-10 h-10 animate-spin" style={{ color: "#36d1cf" }} />
+        <p className="mt-4 text-sm font-semibold text-gray-500 uppercase tracking-wider animate-pulse">
+          Syncing Doctor Reviews...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -159,141 +214,144 @@ function PatientReviewsContent() {
               <Stethoscope className="w-8 h-8" style={{ color: "#36d1cf" }} />
               <span className="text-xl font-bold text-gray-900">DocFind</span>
             </button>
-            <nav className="flex items-center gap-4">
-              <button onClick={() => router.push("/patient/favorites")} className="text-sm text-gray-600 hover:text-gray-900">Favorites</button>
+            <div className="flex items-center gap-4">
               <button onClick={() => router.push("/patient/chats")} className="text-sm text-gray-600 hover:text-gray-900">Chats</button>
-              <button onClick={() => router.push("/patient")} className="text-sm font-medium" style={{ color: "#36d1cf" }}>Find Doctors</button>
-            </nav>
+              <button onClick={() => router.push("/patient/favorites")} className="text-sm text-gray-600 hover:text-gray-900">Favorites</button>
+              <button onClick={() => router.push("/patient/notifications")} className="text-sm text-gray-600 hover:text-gray-900">Notifications</button>
+              <button onClick={() => router.push("/patient")} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl transition-colors hover:bg-teal-600 shadow-sm" style={{ backgroundColor: "#36d1cf" }}>
+                <User className="w-4 h-4" /> Find Doctors
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-12">
-        {step === "phone" && (
-          <div className="bg-white rounded-xl border border-gray-200 p-8">
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#e6faf9" }}>
-                <Star className="w-8 h-8" style={{ color: "#36d1cf" }} />
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900">Leave a Review</h1>
-              <p className="text-gray-600 mt-2">Verify your phone to review completed appointments</p>
-            </div>
-            <form onSubmit={handleSendOtp} className="space-y-4">
-              <div className="relative">
-                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Enter your phone number" className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" required />
-              </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <button type="submit" disabled={sendingOtp || !phone.trim()} className="w-full py-3 text-white font-medium rounded-lg disabled:opacity-50 transition-colors" style={{ backgroundColor: "#36d1cf" }}>
-                {sendingOtp ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Continue"}
-              </button>
-            </form>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          <div>
+            <h1 className="text-2xl font-black text-gray-900">Review Doctors</h1>
+            {currentUser && (
+              <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-1">
+                <Mail className="w-4 h-4 text-gray-400" /> {currentUser.email}
+              </p>
+            )}
           </div>
-        )}
+          <div className="flex items-center gap-1.5 bg-teal-50 text-[#36d1cf] px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider">
+            <ShieldCheck className="w-4 h-4" /> Secure Profile
+          </div>
+        </div>
 
-        {step === "otp" && (
-          <div className="bg-white rounded-xl border border-gray-200 p-8">
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#e6faf9" }}>
-                <Lock className="w-8 h-8" style={{ color: "#36d1cf" }} />
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900">Verify</h1>
-              <p className="text-gray-600 mt-2">Code sent to {phone}</p>
-            </div>
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <input type="text" value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="Enter code" maxLength={6} className="w-full px-4 py-3 border border-gray-200 rounded-lg text-center text-2xl tracking-widest" required />
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <button type="submit" disabled={verifyingOtp || !otp.trim()} className="w-full py-3 text-white font-medium rounded-lg disabled:opacity-50" style={{ backgroundColor: "#36d1cf" }}>
-                {verifyingOtp ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Verify"}
-              </button>
-            </form>
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-6 flex items-center gap-2 text-sm">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <span className="font-semibold">{error}</span>
           </div>
         )}
 
         {step === "list" && (
           <div>
-            <div className="text-center mb-8">
-              <h1 className="text-2xl font-bold text-gray-900">Your Completed Appointments</h1>
-              <p className="text-gray-600 mt-1">Leave reviews for doctors you've visited</p>
-            </div>
-
-            {loading ? (
-              <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} /></div>
-            ) : appointments.length > 0 ? (
+            {appointments.length > 0 ? (
               <div className="space-y-4">
                 {appointments.map((apt) => (
-                  <div key={apt.id} className="bg-white rounded-xl border border-gray-200 p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: "#e6faf9" }}>
-                          <User className="w-6 h-6" style={{ color: "#36d1cf" }} />
+                  <div key={apt.id} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 bg-teal-50 border border-teal-100">
+                          <User className="w-6 h-6 text-[#36d1cf]" />
                         </div>
-                        <div>
-                          <p className="font-medium text-gray-900">{apt.doctors?.full_name || "Doctor"}</p>
-                          <p className="text-sm" style={{ color: "#36d1cf" }}>{apt.doctors?.specialization}</p>
-                          <p className="text-xs text-gray-500 mt-1">{formatDate(apt.appointment_date)} • {apt.clinics?.name}</p>
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-900 truncate">{apt.doctors?.full_name || "Doctor"}</p>
+                          <p className="text-sm font-semibold" style={{ color: "#36d1cf" }}>{apt.doctors?.specialization}</p>
+                          <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>{formatDate(apt.appointment_date)} • {apt.clinics?.name}</span>
+                          </p>
                         </div>
                       </div>
-                      {apt.has_reviewed ? (
-                        <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 flex items-center gap-1">
-                          <Check className="w-3 h-3" /> Reviewed
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => { setSelectedAppointment(apt); setStep("submit"); setError(null); setSuccess(null); }}
-                          className="px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors"
-                          style={{ backgroundColor: "#36d1cf" }}
-                        >
-                          Write Review
-                        </button>
-                      )}
+                      
+                      <div className="flex-shrink-0">
+                        {apt.has_reviewed ? (
+                          <span className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-green-50 text-green-600 border border-green-200 flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5" /> Reviewed
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => { 
+                              setSelectedAppointment(apt); 
+                              setStep("submit"); 
+                              setError(null); 
+                              setSuccess(null); 
+                            }}
+                            className="px-4 py-2 rounded-lg text-white text-sm font-bold shadow-sm transition-colors hover:bg-teal-600"
+                            style={{ backgroundColor: "#36d1cf" }}
+                          >
+                            Write Review
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-                <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">No completed appointments yet</p>
-                <p className="text-sm text-gray-400 mt-1">Complete an appointment to leave a review</p>
-                <button onClick={() => router.push("/patient")} className="mt-4 text-sm font-medium" style={{ color: "#36d1cf" }}>Find Doctors</button>
-              </div>
+              !loading && !error && (
+                <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
+                  <Star className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-700 font-bold">No completed appointments yet</p>
+                  <p className="text-sm text-gray-500 mt-1">Once you complete an appointment, you'll be able to leave feedback here.</p>
+                  <button 
+                    onClick={() => router.push("/patient")} 
+                    className="mt-6 px-6 py-2.5 text-white font-bold text-sm rounded-xl shadow-md transition-colors hover:bg-teal-600" 
+                    style={{ backgroundColor: "#36d1cf" }}
+                  >
+                    Find Doctors
+                  </button>
+                </div>
+              )
             )}
           </div>
         )}
 
         {step === "submit" && selectedAppointment && (
-          <div className="bg-white rounded-xl border border-gray-200 p-8">
+          <div className="bg-white rounded-xl border border-gray-200 p-8 shadow-sm">
             <div className="text-center mb-6">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#e6faf9" }}>
-                <User className="w-8 h-8" style={{ color: "#36d1cf" }} />
+              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-teal-50 border border-teal-100">
+                <User className="w-8 h-8 text-[#36d1cf]" />
               </div>
               <h2 className="text-xl font-bold text-gray-900">Rate Dr. {selectedAppointment.doctors?.full_name}</h2>
-              <p className="text-sm text-gray-500">{selectedAppointment.clinics?.name} • {formatDate(selectedAppointment.appointment_date)}</p>
+              <p className="text-sm font-medium text-gray-500 mt-1">
+                {selectedAppointment.clinics?.name} • {formatDate(selectedAppointment.appointment_date)}
+              </p>
             </div>
 
             {success ? (
-              <div className="text-center py-8">
-                <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#e6faf9" }}>
-                  <Check className="w-8 h-8" style={{ color: "#239999" }} />
+              <div className="text-center py-8 animate-fade-in">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-teal-50 border border-teal-100">
+                  <Check className="w-8 h-8 text-[#36d1cf]" />
                 </div>
-                <p className="text-gray-900 font-medium">{success}</p>
+                <p className="text-gray-900 font-bold">{success}</p>
+                <p className="text-sm text-gray-500 mt-1">Returning to appointments list...</p>
               </div>
             ) : (
               <form onSubmit={handleSubmitReview} className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3 text-center">Your Rating</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-3 text-center uppercase tracking-wider">
+                    Your Rating
+                  </label>
                   <div className="flex items-center justify-center gap-2">
                     {[1, 2, 3, 4, 5].map((star) => (
                       <button
                         key={star}
                         type="button"
                         onClick={() => setRating(star)}
-                        className="p-2 transition-transform hover:scale-110"
+                        className="p-1.5 transition-transform hover:scale-110 active:scale-95"
                       >
                         <Star
-                          className="w-8 h-8 transition-colors"
-                          style={{ color: star <= rating ? "#36d1cf" : "#e5e7eb", fill: star <= rating ? "#36d1cf" : "transparent" }}
+                          className="w-9 h-9 transition-colors"
+                          style={{ 
+                            color: star <= rating ? "#36d1cf" : "#e5e7eb", 
+                            fill: star <= rating ? "#36d1cf" : "transparent" 
+                          }}
                         />
                       </button>
                     ))}
@@ -301,33 +359,42 @@ function PatientReviewsContent() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Your Review (optional)</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Your Experience (optional)
+                  </label>
                   <textarea
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
                     rows={4}
-                    placeholder="Share your experience with this doctor..."
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                    placeholder="Describe how your appointment went. Sharing your experience helps other patients find the right care..."
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#36d1cf]/30 focus:border-[#36d1cf] resize-none leading-relaxed text-sm"
                   />
                 </div>
 
-                {error && <p className="text-sm text-red-600">{error}</p>}
+                {error && <p className="text-sm text-red-600 font-semibold">{error}</p>}
 
                 <div className="flex gap-3">
                   <button
                     type="button"
                     onClick={() => { setStep("list"); setSelectedAppointment(null); }}
-                    className="flex-1 py-3 border border-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                    className="flex-1 py-3 border border-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 py-3 text-white font-medium rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="flex-1 py-3 text-white font-bold rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm transition-colors hover:bg-teal-600"
                     style={{ backgroundColor: "#36d1cf" }}
                   >
-                    {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Send className="w-4 h-4" /> Submit Review</>}
+                    {submitting ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" /> 
+                        Submit Review
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
@@ -341,8 +408,14 @@ function PatientReviewsContent() {
 
 export default function PatientReviewsPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} /></div>}>
-      <PatientReviewsContent />
-    </Suspense>
+    <AuthGuard currentPath="/patient/reviews">
+      <Suspense fallback={
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} />
+        </div>
+      }>
+        <PatientReviewsContent />
+      </Suspense>
+    </AuthGuard>
   );
 }
