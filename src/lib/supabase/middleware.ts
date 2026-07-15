@@ -4,9 +4,13 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    throw new Error('Missing Supabase environment variables in middleware execution.');
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() {
@@ -23,19 +27,31 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  // Authenticate user session securely on the server side
   const { data: { user } } = await supabase.auth.getUser();
 
-  const protectedPaths = ["/doctor/dashboard", "/doctor/onboarding", "/doctor/appointments", "/doctor/inbox", "/doctor/availability", "/doctor/breaks", "/doctor/settings"];
+  const protectedPaths = [
+    "/doctor/dashboard", 
+    "/doctor/onboarding", 
+    "/doctor/appointments", 
+    "/doctor/inbox", 
+    "/doctor/availability", 
+    "/doctor/breaks", 
+    "/doctor/settings"
+  ];
+  
   const isProtectedPath = protectedPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
 
+  // Redirect unauthenticated doctor users back to login
   if (isProtectedPath && !user) {
     const url = request.nextUrl.clone();
     url.pathname = "/doctor/login";
     return NextResponse.redirect(url);
   }
 
+  // Redirect authenticated doctor users away from auth pages straight to their dashboard
   const authPaths = ["/doctor/login", "/doctor/signup"];
   if (authPaths.includes(request.nextUrl.pathname) && user) {
     const url = request.nextUrl.clone();
