@@ -1,4 +1,4 @@
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -28,23 +28,31 @@ export async function middleware(request: NextRequest) {
     "/doctor/signup"
   ];
 
-  // 🔥 100% FIXED: If it starts with /doctor/ but is NOT an explicit portal route (like a patient viewing /doctor/e51001ce-...), 
-  // bypass rate limit and session update middleware entirely!
+  // 🔥 If it starts with /doctor/ but is NOT an explicit dashboard route (e.g. patients viewing doctor profiles)
+  // We bypass rate limiting and session updates to make the profile view super fast.
   if (pathname.startsWith("/doctor/")) {
     const isStrictDashboardRoute = strictPortalRoutes.some((route) => pathname.startsWith(route));
     if (!isStrictDashboardRoute) {
-      return; // Dynamic profile page directly bypasses the auth/middleware check
+      return NextResponse.next(); // Clean Next.js bypass
     }
   }
 
+  // Apply rate limiting
   const rateLimitResponse = checkRateLimit(request);
   if (rateLimitResponse) return rateLimitResponse;
 
+  // Pass control to Supabase Session update
   return await updateSession(request);
 }
 
 export const config = {
   matcher: [
+    /*
+     * Match all request paths except static assets:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
