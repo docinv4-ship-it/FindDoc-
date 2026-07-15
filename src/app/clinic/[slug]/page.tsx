@@ -89,23 +89,49 @@ export default function ClinicPage() {
   }, [clinic, selectedDate]);
 
   const handleStartChat = async () => {
-    if (!chatName.trim() || !chatPhone.trim() || !clinic) return;
-    const res = await fetch("/api/chat/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        doctor_id: clinic.doctor_id,
-        clinic_id: clinic.id,
-        patient_name: chatName,
-        patient_phone: chatPhone,
-      }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      setConversationId(data.conversation_id);
-      if (data.welcome_message) setChatMessages([{ content: data.welcome_message, sender_type: "doctor" }]);
-      setChatStep("chat");
-      if (typeof window !== "undefined") localStorage.setItem(`chat_session_${clinic.id}`, JSON.stringify({ conversation_id: data.conversation_id, patient_name: chatName, patient_phone: chatPhone }));
+    if (!chatName.trim() || !chatPhone.trim() || !clinic) {
+      alert("Please enter both name and phone number");
+      return;
+    }
+
+    setChatSending(true);
+
+    try {
+      const res = await fetch("/api/chat/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doctor_id: clinic.doctor_id,
+          clinic_id: clinic.id,
+          patient_name: chatName,
+          patient_phone: chatPhone,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setConversationId(data.conversation_id);
+        if (data.welcome_message) {
+          setChatMessages([{ content: data.welcome_message, sender_type: "doctor" }]);
+        }
+        setChatStep("chat");
+        
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`chat_session_${clinic.id}`, JSON.stringify({ 
+            conversation_id: data.conversation_id, 
+            patient_name: chatName, 
+            patient_phone: chatPhone 
+          }));
+        }
+      } else {
+        alert(data.error || "Failed to start chat. Please try again.");
+      }
+    } catch (err) {
+      console.error("Chat Error:", err);
+      alert("Something went wrong. Check your internet connection.");
+    } finally {
+      setChatSending(false);
     }
   };
 
@@ -352,7 +378,10 @@ export default function ClinicPage() {
               <div className="space-y-4">
                 <input type="text" value={chatName} onChange={(e) => setChatName(e.target.value)} placeholder="Your name" className="w-full px-4 py-2 border border-gray-200 rounded-lg" />
                 <input type="tel" value={chatPhone} onChange={(e) => setChatPhone(e.target.value)} placeholder="Your phone" className="w-full px-4 py-2 border border-gray-200 rounded-lg" />
-                <button onClick={handleStartChat} className="w-full py-2 rounded-lg text-white font-medium" style={{ backgroundColor: "#36d1cf" }}>Start Chat</button>
+                <button onClick={handleStartChat} disabled={chatSending} className="w-full py-2 rounded-lg text-white font-medium flex items-center justify-center gap-2" style={{ backgroundColor: "#36d1cf" }}>
+                  {chatSending && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Start Chat
+                </button>
               </div>
             ) : (
               <>
@@ -367,7 +396,9 @@ export default function ClinicPage() {
                 </div>
                 <div className="mt-4 flex gap-2">
                   <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type a message..." className="flex-1 px-4 py-2 border border-gray-200 rounded-lg" onKeyDown={(e) => e.key === "Enter" && handleSendChatMessage()} />
-                  <button onClick={handleSendChatMessage} disabled={chatSending} className="px-4 py-2 rounded-lg text-white" style={{ backgroundColor: "#36d1cf" }}>Send</button>
+                  <button onClick={handleSendChatMessage} disabled={chatSending} className="px-4 py-2 rounded-lg text-white flex items-center justify-center" style={{ backgroundColor: "#36d1cf" }}>
+                    {chatSending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send"}
+                  </button>
                 </div>
               </>
             )}
