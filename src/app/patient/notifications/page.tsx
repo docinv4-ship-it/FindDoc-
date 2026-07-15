@@ -1,74 +1,137 @@
 "use client";
 
 import { Suspense, useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, Bell, Phone, Lock, Calendar, MessageCircle, Stethoscope, User } from "lucide-react";
+import { 
+  Loader2, 
+  Bell, 
+  Calendar, 
+  MessageCircle, 
+  Stethoscope, 
+  User, 
+  Mail, 
+  ShieldCheck, 
+  AlertCircle, 
+  CheckSquare 
+} from "lucide-react";
+import AuthGuard from "@/components/AuthGuard";
 import type { Database } from "@/types/database";
 
 type Notification = Database["public"]["Tables"]["notifications"]["Row"];
 
 function PatientNotificationsContent() {
-  const [step, setStep] = useState<"phone" | "otp" | "notifications">("phone");
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [sendingOtp, setSendingOtp] = useState(false);
-  const [verifyingOtp, setVerifyingOtp] = useState(false);
-  const [verificationId, setVerificationId] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [patientId, setPatientId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [markingAll, setMarkingAll] = useState(false);
   const router = useRouter();
+  
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
-  const handleSendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSendingOtp(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/otp/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phone.trim(), purpose: "lookup" }),
-      });
-      const data = await response.json();
-      if (response.ok) { setVerificationId(data.verification_id); setStep("otp"); }
-      else { setError(data.error || "Failed to send OTP"); }
-    } catch { setError("An error occurred"); }
-    setSendingOtp(false);
-  };
+  // Automatic Authentication & Profile Resolution
+  useEffect(() => {
+    const initializeNotifications = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setCurrentUser(user);
+          
+          // Match patient profile by Auth User ID or linked Email
+          let patientProfile = null;
+          const { data: profileById } = await supabase
+            .from("patients")
+            .select("id")
+            .eq("id", user.id)
+            .maybeSingle();
 
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setVerifyingOtp(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/otp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ verification_id: verificationId, otp: otp.trim() }),
-      });
-      if (response.ok) {
-        const { data: patient } = await supabase.from("patients").select("id").eq("phone", phone.trim()).single();
-        if (patient) { setPatientId(patient.id); await fetchNotifications(patient.id); setStep("notifications"); }
-        else { setError("Patient not found"); }
-      } else { setError("Invalid OTP"); }
-    } catch { setError("An error occurred"); }
-    setVerifyingOtp(false);
-  };
+          patientProfile = profileById;
+
+          if (!patientProfile && user.email) {
+            const { data: profileByEmail } = await supabase
+              .from("patients")
+              .select("id")
+              .eq("email", user.email)
+              .maybeSingle();
+            patientProfile = profileByEmail;
+          }
+
+          if (patientProfile) {
+            setPatientId(patientProfile.id);
+            await fetchNotifications(patientProfile.id);
+          } else {
+            setError("No patient profile associated with this user.");
+          }
+        } else {
+          setError("No authenticated session found.");
+        }
+      } catch (err) {
+        console.error("Initialization error:", err);
+        setError("Something went wrong establishing a secure connection.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeNotifications();
+  }, [supabase]);
 
   const fetchNotifications = async (pId: string) => {
     setLoading(true);
-    const { data, error } = await supabase.from("notifications").select("*").eq("user_id", pId).eq("user_type", "patient").order("created_at", { ascending: false }).limit(50);
-    if (!error && data) setNotifications(data);
+    const { data, error: fetchError } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", pId)
+      .eq("user_type", "patient")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    
+    if (fetchError) {
+      setError("Failed to sync your notifications inbox.");
+    } else if (data) {
+      setNotifications(data);
+    }
     setLoading(false);
   };
 
   const markAsRead = async (notificationId: string) => {
-    await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("id", notificationId);
-    setNotifications((prev) => prev.map((n) => n.id === notificationId ? { ...n, is_read: true } : n));
+    try {
+      await supabase
+        .from("notifications")
+        .update({ is_read: true, read_at: new Date().toISOString() })
+        .eq("id", notificationId);
+      
+      setNotifications((prev) => 
+        prev.map((n) => n.id === notificationId ? { ...n, is_read: true } : n)
+      );
+    } catch (err) {
+      console.error("Error marking notification as read:", err);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    if (!patientId || notifications.length === 0) return;
+    setMarkingAll(true);
+    try {
+      const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id);
+      if (unreadIds.length > 0) {
+        await supabase
+          .from("notifications")
+          .update({ is_read: true, read_at: new Date().toISOString() })
+          .in("id", unreadIds);
+
+        setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      }
+    } catch (err) {
+      console.error("Error marking all read:", err);
+    } finally {
+      setMarkingAll(false);
+    }
   };
 
   const getIcon = (type: string) => {
@@ -89,6 +152,19 @@ function PatientNotificationsContent() {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
+  if (loading && notifications.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
+        <Loader2 className="w-10 h-10 animate-spin" style={{ color: "#36d1cf" }} />
+        <p className="mt-4 text-sm font-semibold text-gray-500 uppercase tracking-wider animate-pulse">
+          Syncing Notifications Inbox...
+        </p>
+      </div>
+    );
+  }
+
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200">
@@ -98,89 +174,112 @@ function PatientNotificationsContent() {
               <Stethoscope className="w-8 h-8" style={{ color: "#36d1cf" }} />
               <span className="text-xl font-bold text-gray-900">DocFind</span>
             </button>
-            <button onClick={() => router.push("/patient")} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900">
-              <User className="w-4 h-4" /> Find Doctors
-            </button>
+            <div className="flex items-center gap-4">
+              <button onClick={() => router.push("/patient/chats")} className="text-sm text-gray-600 hover:text-gray-900">Chats</button>
+              <button onClick={() => router.push("/patient/favorites")} className="text-sm text-gray-600 hover:text-gray-900">Favorites</button>
+              <button onClick={() => router.push("/patient")} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl transition-colors hover:bg-teal-600 shadow-sm" style={{ backgroundColor: "#36d1cf" }}>
+                <User className="w-4 h-4" /> Find Doctors
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-12">
-        {step === "phone" && (
-          <div className="bg-white rounded-xl border border-gray-200 p-8">
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#e6faf9" }}>
-                <Bell className="w-8 h-8" style={{ color: "#36d1cf" }} />
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
-              <p className="text-gray-600 mt-2">Enter your phone number to view notifications</p>
-            </div>
-            <form onSubmit={handleSendOtp} className="space-y-4">
-              <div className="relative">
-                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Enter your phone number" className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-lg" required />
-              </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <button type="submit" disabled={sendingOtp || !phone.trim()} className="w-full py-3 text-white font-medium rounded-lg disabled:opacity-50" style={{ backgroundColor: "#36d1cf" }}>
-                {sendingOtp ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Send Verification Code"}
-              </button>
-            </form>
-          </div>
-        )}
-
-        {step === "otp" && (
-          <div className="bg-white rounded-xl border border-gray-200 p-8">
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#e6faf9" }}>
-                <Lock className="w-8 h-8" style={{ color: "#36d1cf" }} />
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900">Verify Your Number</h1>
-              <p className="text-gray-600 mt-2">We sent a verification code to {phone}</p>
-            </div>
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <input type="text" value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="Enter verification code" maxLength={6} className="w-full px-4 py-3 border border-gray-200 rounded-lg text-center text-2xl tracking-widest" required />
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <button type="submit" disabled={verifyingOtp || !otp.trim()} className="w-full py-3 text-white font-medium rounded-lg disabled:opacity-50" style={{ backgroundColor: "#36d1cf" }}>
-                {verifyingOtp ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Verify & View Notifications"}
-              </button>
-            </form>
-          </div>
-        )}
-
-        {step === "notifications" && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-6">Notifications</h1>
-            {loading ? (
-              <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} /></div>
-            ) : notifications.length > 0 ? (
-              <div className="space-y-3">
-                {notifications.map((notification) => {
-                  const Icon = getIcon(notification.type);
-                  return (
-                    <div key={notification.id} onClick={() => !notification.is_read && markAsRead(notification.id)} className={`bg-white rounded-xl border p-4 cursor-pointer transition-all ${notification.is_read ? "border-gray-200" : "border-l-4 border-gray-200"}`} style={!notification.is_read ? { borderLeftColor: "#36d1cf" } : undefined}>
-                      <div className="flex items-start gap-4">
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: notification.is_read ? "#f3f4f6" : "#e6faf9" }}>
-                          <Icon className="w-5 h-5" style={{ color: notification.is_read ? "#9ca3af" : "#36d1cf" }} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <p className={`font-medium ${notification.is_read ? "text-gray-600" : "text-gray-900"}`}>{notification.title}</p>
-                            <span className="text-xs text-gray-400">{formatDate(notification.created_at)}</span>
-                          </div>
-                          <p className="text-sm text-gray-500 mt-1">{notification.body}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-                <Bell className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">No notifications yet</p>
-              </div>
+            <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+              Notifications
+              {unreadCount > 0 && (
+                <span className="bg-rose-100 text-rose-600 text-xs px-2.5 py-1 rounded-full font-bold">
+                  {unreadCount} New
+                </span>
+              )}
+            </h1>
+            {currentUser && (
+              <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-1">
+                <Mail className="w-4 h-4 text-gray-400" /> {currentUser.email}
+              </p>
             )}
           </div>
+          <div className="flex items-center gap-1.5 bg-teal-50 text-[#36d1cf] px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider">
+            <ShieldCheck className="w-4 h-4" /> Auto Sync
+          </div>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-6 flex items-center gap-2 text-sm">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <span className="font-semibold">{error}</span>
+          </div>
+        )}
+
+        {notifications.length > 0 && (
+          <div className="flex justify-end mb-4">
+            <button 
+              onClick={markAllAsRead} 
+              disabled={unreadCount === 0 || markingAll} 
+              className="text-xs font-bold text-[#36d1cf] hover:text-teal-600 transition-colors flex items-center gap-1.5 disabled:opacity-40"
+            >
+              {markingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckSquare className="w-4 h-4" />}
+              Mark all as read
+            </button>
+          </div>
+        )}
+
+        {notifications.length > 0 ? (
+          <div className="space-y-3">
+            {notifications.map((notification) => {
+              const Icon = getIcon(notification.type);
+              return (
+                <div 
+                  key={notification.id} 
+                  onClick={() => !notification.is_read && markAsRead(notification.id)} 
+                  className={`bg-white rounded-xl border p-4 cursor-pointer transition-all ${
+                    notification.is_read 
+                      ? "border-gray-200 shadow-sm" 
+                      : "border-l-4 border-gray-200 shadow-md hover:shadow-lg"
+                  }`} 
+                  style={!notification.is_read ? { borderLeftColor: "#36d1cf" } : undefined}
+                >
+                  <div className="flex items-start gap-4">
+                    <div 
+                      className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" 
+                      style={{ backgroundColor: notification.is_read ? "#f3f4f6" : "#e6faf9" }}
+                    >
+                      <Icon className="w-5 h-5" style={{ color: notification.is_read ? "#9ca3af" : "#36d1cf" }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-4">
+                        <p className={`font-bold truncate text-sm sm:text-base ${notification.is_read ? "text-gray-600" : "text-gray-900"}`}>
+                          {notification.title}
+                        </p>
+                        <span className="text-[11px] font-semibold text-gray-400 whitespace-nowrap flex-shrink-0">
+                          {formatDate(notification.created_at)}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500 mt-1 leading-relaxed">{notification.body}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          !loading && !error && (
+            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
+              <Bell className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-700 font-bold">No notifications yet</p>
+              <p className="text-sm text-gray-500 mt-1">We'll alert you here when doctor status updates or chat messages arrive.</p>
+              <button 
+                onClick={() => router.push("/patient")} 
+                className="mt-6 px-6 py-2.5 text-white font-bold text-sm rounded-xl shadow-md transition-colors hover:bg-teal-600" 
+                style={{ backgroundColor: "#36d1cf" }}
+              >
+                Find Doctors
+              </button>
+            </div>
+          )
         )}
       </main>
     </div>
@@ -189,8 +288,14 @@ function PatientNotificationsContent() {
 
 export default function PatientNotificationsPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen"><Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} /></div>}>
-      <PatientNotificationsContent />
-    </Suspense>
+    <AuthGuard currentPath="/patient/notifications">
+      <Suspense fallback={
+        <div className="flex items-center justify-center h-screen bg-gray-50">
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} />
+        </div>
+      }>
+        <PatientNotificationsContent />
+      </Suspense>
+    </AuthGuard>
   );
 }
