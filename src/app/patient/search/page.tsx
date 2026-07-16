@@ -34,39 +34,115 @@ export default function PatientSearchPage() {
   useEffect(() => {
     const fetchDataAndSession = async () => {
       try {
+        // 1. Fetch Safe Session
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           setUser(session.user);
         }
 
-        const { data: doctorsData, error } = await supabase
+        let doctorsData: any[] | null = null;
+        let fetchError: any = null;
+
+        // --- SELF-HEALING ARCHITECTURE PIPELINE ---
+        
+        // Attempt 1: Full Query (All Relations + Onboarded Filter)
+        const attempt1 = await supabase
           .from("doctors")
           .select(`*, clinics (id, name, address, city, consultation_fee), featured_listings (status, expires_at)`)
           .eq("is_onboarded", true);
+        
+        doctorsData = attempt1.data;
+        fetchError = attempt1.error;
 
-        if (!error && doctorsData) {
-          const sortedDoctors = (doctorsData as DoctorWithClinic[]).sort((a, b) => {
+        // Attempt 2: Fallback without "is_onboarded" filter (in case column name differs)
+        if (fetchError || !doctorsData) {
+          console.warn("Fallback Level 1: Retrying without 'is_onboarded' constraint...");
+          const attempt2 = await supabase
+            .from("doctors")
+            .select(`*, clinics (id, name, address, city, consultation_fee), featured_listings (status, expires_at)`);
+          
+          doctorsData = attempt2.data;
+          fetchError = attempt2.error;
+        }
+
+        // Attempt 3: Fallback without "featured_listings" relation (in case table doesn't exist yet)
+        if (fetchError || !doctorsData) {
+          console.warn("Fallback Level 2: Retrying without 'featured_listings' relationship...");
+          const attempt3 = await supabase
+            .from("doctors")
+            .select(`*, clinics (id, name, address, city, consultation_fee)`);
+          
+          doctorsData = attempt3.data;
+          fetchError = attempt3.error;
+        }
+
+        // Attempt 4: Fallback to singular 'clinic' relation (in case schema names are singular)
+        if (fetchError || !doctorsData) {
+          console.warn("Fallback Level 3: Trying singular 'clinic' join...");
+          const attempt4 = await supabase
+            .from("doctors")
+            .select(`*, clinic (id, name, address, city, consultation_fee)`);
+          
+          if (attempt4.data) {
+            doctorsData = attempt4.data.map((doc: any) => ({
+              ...doc,
+              clinics: doc.clinic ? (Array.isArray(doc.clinic) ? doc.clinic : [doc.clinic]) : []
+            }));
+          }
+          fetchError = attempt4.error;
+        }
+
+        // Attempt 5: Bare Minimum Fetch (Guarantees doctor rendering even if relations fail)
+        if (fetchError || !doctorsData) {
+          console.warn("Fallback Level 4: Executing raw bare-minimum doctor fetch...");
+          const attempt5 = await supabase.from("doctors").select(`*`);
+          doctorsData = attempt5.data;
+          fetchError = attempt5.error;
+        }
+
+        // 2. Normalization to prevent front-end crashes (clinics is guaranteed to be an array)
+        if (doctorsData) {
+          const normalizedDoctors: DoctorWithClinic[] = doctorsData.map((doc: any) => {
+            let finalClinics = [];
+            if (doc.clinics) {
+              finalClinics = Array.isArray(doc.clinics) ? doc.clinics : [doc.clinics];
+            } else if (doc.clinic) {
+              finalClinics = Array.isArray(doc.clinic) ? doc.clinic : [doc.clinic];
+            }
+            return {
+              ...doc,
+              clinics: finalClinics,
+              featured_listings: doc.featured_listings || []
+            };
+          });
+
+          // Sort by featured listings first
+          const sortedDoctors = normalizedDoctors.sort((a, b) => {
             const aFeatured = a.featured_listings?.some(f => f.status === "active" && new Date(f.expires_at) > new Date());
             const bFeatured = b.featured_listings?.some(f => f.status === "active" && new Date(f.expires_at) > new Date());
             if (aFeatured && !bFeatured) return -1;
             if (!aFeatured && bFeatured) return 1;
             return (a.full_name || "").localeCompare(b.full_name || "");
           });
+
           setDoctors(sortedDoctors);
 
+          // Populate filters safely
           const citySet = new Set<string>();
           const specSet = new Set<string>();
-          doctorsData.forEach((doc: DoctorWithClinic) => {
+          normalizedDoctors.forEach((doc) => {
             if (doc.specialization) specSet.add(doc.specialization);
-            doc.clinics?.forEach((clinic: { city: string }) => {
-              if (clinic.city) citySet.add(clinic.city);
+            doc.clinics?.forEach((clinic) => {
+              if (clinic?.city) citySet.add(clinic.city);
             });
           });
           setCities(Array.from(citySet).sort());
           setSpecializations(Array.from(specSet).sort());
+        } else {
+          console.error("All doctor queries failed in self-healing pipeline:", fetchError);
         }
       } catch (err) {
-        console.error("System error on fetching patient dashboard:", err);
+        console.error("Critical System error on fetching patient dashboard:", err);
       } finally {
         setLoading(false);
       }
@@ -94,10 +170,21 @@ export default function PatientSearchPage() {
     }
   };
 
+  // Safe lowercased robust filters
   const filteredDoctors = doctors.filter((doc) => {
-    const matchesSearch = !searchQuery || doc.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) || doc.specialization?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesSpec = selectedSpecialization === "all" || doc.specialization === selectedSpecialization;
-    const matchesCity = selectedCity === "all" || doc.clinics?.some((clinic) => clinic.city === selectedCity);
+    const fullName = doc.full_name || "";
+    const specialization = doc.specialization || "";
+    
+    const matchesSearch = !searchQuery || 
+      fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      specialization.toLowerCase().includes(searchQuery.toLowerCase());
+      
+    const matchesSpec = selectedSpecialization === "all" || 
+      specialization === selectedSpecialization;
+      
+    const matchesCity = selectedCity === "all" || 
+      (doc.clinics && doc.clinics.some((clinic) => clinic?.city?.toLowerCase() === selectedCity.toLowerCase()));
+      
     return matchesSearch && matchesSpec && matchesCity;
   });
 
@@ -192,8 +279,7 @@ export default function PatientSearchPage() {
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
                 placeholder="Search by name or specialization..." 
-                className="w-full pl-10 pr-4 py-2.5 md:py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-0 text-sm"
-                style={{ "--tw-ring-color": "#36d1cf" } as React.CSSProperties}
+                className="w-full pl-10 pr-4 py-2.5 md:py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#36d1cf] focus:ring-offset-0 text-sm"
               />
             </div>
             <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 bg-white">
@@ -201,7 +287,7 @@ export default function PatientSearchPage() {
               <select 
                 value={selectedCity} 
                 onChange={(e) => setSelectedCity(e.target.value)} 
-                className="w-full py-1 focus:outline-none text-sm bg-transparent border-0"
+                className="w-full py-1 focus:outline-none text-sm bg-transparent border-0 cursor-pointer"
               >
                 <option value="all">All Cities</option>
                 {cities.map((city) => (<option key={city} value={city}>{city}</option>))}
@@ -212,7 +298,7 @@ export default function PatientSearchPage() {
               <select 
                 value={selectedSpecialization} 
                 onChange={(e) => setSelectedSpecialization(e.target.value)} 
-                className="w-full py-1 focus:outline-none text-sm bg-transparent border-0"
+                className="w-full py-1 focus:outline-none text-sm bg-transparent border-0 cursor-pointer"
               >
                 <option value="all">All Specializations</option>
                 {specializations.map((spec) => (<option key={spec} value={spec}>{spec}</option>))}
