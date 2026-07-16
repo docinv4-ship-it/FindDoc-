@@ -1,266 +1,249 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 import { 
-  Loader2, Stethoscope, User, Calendar, Bell, LogOut, 
-  ArrowRight, MessageSquare, Heart, Clock, CheckCircle2, Search, ArrowUpRight
+  Stethoscope, Calendar, MessageCircle, User, Loader2, 
+  Clock, MapPin, AlertCircle, Heart, ArrowRight 
 } from "lucide-react";
-import AuthModal from "@/components/AuthModal";
+
+interface Appointment {
+  id: string;
+  date: string;
+  start_time: string;
+  status: "pending" | "confirmed" | "cancelled";
+  clinics: {
+    name: string;
+    address: string;
+    city: string;
+  } | null;
+  doctors: {
+    full_name: string;
+    specialization: string;
+  } | null;
+}
 
 export default function PatientDashboard() {
-  const [loading, setLoading] = useState(true);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [user, setUser] = useState<any>(null);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [stats, setStats] = useState({ appointments: 0, favorites: 0, messages: 0 });
-  
   const router = useRouter();
-  const pathname = usePathname();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const supabase: any = createClient();
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [stats, setStats] = useState({
+    upcomingCount: 0,
+    favoritesCount: 0,
+    chatsCount: 0
+  });
+
+  const supabase = createClient();
 
   useEffect(() => {
-    const fetchUserAndStats = async () => {
+    const getDashboardData = async () => {
       try {
+        // 1. User Session Check
         const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          setUser(session.user);
-          // Dummy counts for elite dashboard metrics (In production, fetch from Supabase)
-          setStats({ appointments: 2, favorites: 5, messages: 1 });
+        if (!session) {
+          router.push("/login"); 
+          return;
         }
-      } catch (err) {
-        console.error("Dashboard session error:", err);
+        setUser(session.user);
+
+        const patientId = session.user.id;
+
+        // 2. Real Appointments Fetch (From 'appointments' table)
+        const { data: appData, error: appError } = await supabase
+          .from("appointments") 
+          .select(`
+            id, date, start_time, status,
+            clinics (name, address, city),
+            doctors (full_name, specialization)
+          `)
+          .eq("patient_id", patientId)
+          .order("date", { ascending: true });
+
+        if (appError) throw appError;
+
+        // 3. Chats Count (From 'conversations' table)
+        const { count: chatCount, error: chatError } = await supabase
+          .from("conversations")
+          .select("*", { count: "exact", head: true })
+          .eq("patient_id", patientId);
+
+        // 4. Favorites Count (Corrected: From 'patient_favorites' table)
+        const { count: favCount } = await supabase
+          .from("patient_favorites")
+          .select("*", { count: "exact", head: true })
+          .eq("patient_id", patientId);
+
+        const realAppointments = appData || [];
+        setAppointments(realAppointments);
+
+        // Filter active upcoming bookings
+        const todayStr = new Date().toISOString().split("T")[0];
+        const upcoming = realAppointments.filter(app => app.date >= todayStr && app.status !== "cancelled");
+
+        setStats({
+          upcomingCount: upcoming.length,
+          favoritesCount: favCount || 0,
+          chatsCount: chatCount || 0
+        });
+
+      } catch (error) {
+        console.error("Dashboard Fetch Error:", error);
       } finally {
         setLoading(false);
       }
     };
-    fetchUserAndStats();
-  }, [supabase]);
 
-  const handleLogout = async () => {
-    try {
-      setLoading(true);
-      await supabase.auth.signOut();
-      setUser(null);
-      router.replace("/");
-    } catch (err) {
-      console.error("Logout error:", err);
-      setLoading(false);
-    }
-  };
-
-  const handleProtectedAction = (targetPath: string) => {
-    if (!user) {
-      setIsAuthModalOpen(true);
-    } else {
-      router.push(targetPath);
-    }
-  };
+    getDashboardData();
+  }, [router, supabase]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <Loader2 className="w-8 h-8 animate-spin text-[#36d1cf]" />
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-24 md:pb-12 font-sans">
-      {/* Premium Navbar */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => router.push("/")}>
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#36d1cf]">
-                <Stethoscope className="w-5.5 h-5.5 text-white" />
-              </div>
-              <span className="text-xl font-bold text-gray-900 tracking-tight">DocFind</span>
+    <div className="min-h-screen bg-gray-50/50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: "#36d1cf" }}>
+              <Stethoscope className="w-6 h-6 text-white" />
             </div>
-            
-            <nav className="hidden md:flex items-center gap-8">
-              <button onClick={() => router.push("/patient")} className="text-sm font-semibold text-[#36d1cf] border-b-2 border-[#36d1cf] pb-1 bg-transparent border-0 cursor-pointer">Home</button>
-              <button onClick={() => router.push("/patient/search")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Find Doctors</button>
-              <button onClick={() => handleProtectedAction("/patient/favorites")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Favorites</button>
-              <button onClick={() => handleProtectedAction("/patient/chats")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Chats</button>
-              <button onClick={() => handleProtectedAction("/patient/appointments")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Appointments</button>
-              
-              {user ? (
-                <div className="flex items-center gap-3">
-                  <button onClick={() => router.push("/patient/profile")} className="flex items-center gap-1.5 text-sm font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-xl transition-all border-0 cursor-pointer">
-                    <User className="w-4 h-4 text-gray-500" /> {user.email?.split("@")[0]}
-                  </button>
-                  <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors bg-transparent border-0 cursor-pointer">
-                    <LogOut className="h-5 w-5" />
-                  </button>
-                </div>
-              ) : (
-                <button onClick={() => setIsAuthModalOpen(true)} className="px-5 py-2.5 text-sm font-bold text-white bg-[#36d1cf] hover:bg-[#2eb3b1] rounded-xl transition-all border-0 cursor-pointer shadow-sm">
-                  Sign In
-                </button>
-              )}
-            </nav>
+            <span className="text-2xl font-bold text-gray-900">DocFind</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium text-gray-600 bg-gray-100 px-3 py-1.5 rounded-full">
+              {user?.email || "Patient Profile"}
+            </span>
           </div>
         </div>
       </header>
 
-      {/* Hero Welcome Section */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-5xl mx-auto px-4 py-8">
+        {/* Welcome Section */}
         <div className="mb-8">
-          <p className="text-sm font-bold text-[#36d1cf] tracking-wide uppercase">Control Center</p>
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight mt-1">
-            {user ? `Welcome back, ${user.email?.split("@")[0]}! 👋` : "Welcome to DocFind! 👋"}
+          <p className="text-xs font-semibold uppercase tracking-wider text-teal-600 mb-1">Control Center</p>
+          <h1 className="text-3xl font-bold text-gray-900">
+            Welcome back{user?.user_metadata?.full_name ? `, ${user.user_metadata.full_name}` : ""}! 👋
           </h1>
-          <p className="text-gray-500 text-sm mt-1.5">Manage your health consultations and checkups at a glance.</p>
+          <p className="text-gray-500 mt-1">Manage your health consultations and checkups at a glance.</p>
         </div>
 
-        {/* Quick Action Widget / Search Banner */}
-        <div className="bg-gradient-to-r from-teal-500 to-[#36d1cf] rounded-2xl p-6 md:p-8 text-white shadow-md mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-          <div className="max-w-lg">
-            <h2 className="text-xl md:text-2xl font-bold">Need professional care?</h2>
-            <p className="text-white/80 text-sm mt-2">Connect instantly with the region's highest-ranked healthcare consultants and specialists.</p>
+        {/* Action Banner */}
+        <div className="bg-gradient-to-r from-teal-50 to-emerald-50 rounded-2xl border border-teal-100 p-6 mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Need professional care?</h3>
+            <p className="text-sm text-gray-600">Connect instantly with the region&apos;s highest-ranked healthcare consultants.</p>
           </div>
           <button 
-            onClick={() => router.push("/patient/search")}
-            className="flex items-center gap-2 px-6 py-3.5 bg-white text-teal-600 hover:text-teal-700 font-bold rounded-xl transition-all shadow-lg shadow-teal-900/10 border-0 cursor-pointer text-sm whitespace-nowrap active:scale-[0.98]"
+            onClick={() => router.push("/patient")} 
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-medium shadow-sm transition-all hover:opacity-90 self-start md:self-auto"
+            style={{ backgroundColor: "#36d1cf" }}
           >
-            <Search className="w-4 h-4" /> Start Finding Doctors
+            Start Finding Doctors <ArrowRight className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Dynamic Statistics Metrics */}
-        {user && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
-            {[
-              { label: "Upcoming Bookings", value: stats.appointments, icon: Calendar, color: "text-[#36d1cf] bg-teal-50" },
-              { label: "Favorite Clinicians", value: stats.favorites, icon: Heart, color: "text-rose-500 bg-rose-50" },
-              { label: "Direct Consult Chats", value: stats.messages, icon: MessageSquare, color: "text-blue-500 bg-blue-50" },
-            ].map((stat, i) => (
-              <div key={i} className="bg-white p-5 rounded-xl border border-gray-200/80 flex items-center justify-between shadow-sm">
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{stat.label}</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
-                </div>
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${stat.color}`}>
-                  <stat.icon className="w-6 h-6" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Upcoming Visits Panel */}
-        <div className="grid lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
-                <Clock className="w-5 h-5 text-gray-400" /> Upcoming Schedule
-              </h3>
-              {user && (
-                <button 
-                  onClick={() => router.push("/patient/appointments")}
-                  className="text-xs font-bold text-[#36d1cf] hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer"
-                >
-                  View All <ArrowUpRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Appointment State Logic */}
-            {user ? (
-              <div className="space-y-4">
-                {/* Visual Card Example of active appointment */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-[#36d1cf]/40 transition-all bg-gray-50/50">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-11 h-11 rounded-full bg-[#e6faf9] flex items-center justify-center text-[#36d1cf] font-extrabold text-sm">SK</div>
-                    <div>
-                      <h4 className="font-semibold text-gray-900 text-sm">Dr. Sheraz Khan</h4>
-                      <p className="text-xs text-gray-500 mt-0.5">Internal Medicine • SK Clinic</p>
-                    </div>
-                  </div>
-                  <div className="mt-3 sm:mt-0 text-left sm:text-right flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto">
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-teal-50 text-teal-800 font-bold flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" /> Confirmed
-                    </span>
-                    <p className="text-xs font-bold text-gray-700 mt-1.5">Tomorrow at 10:30 AM</p>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-10 border border-dashed border-gray-200 rounded-xl bg-gray-50/40">
-                <Calendar className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                <h4 className="font-bold text-gray-700 text-sm">Secure Your Next Session</h4>
-                <p className="text-gray-500 text-xs mt-1 max-w-xs mx-auto">Please login to securely book, track, and manage your medical consultations.</p>
-                <button 
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="mt-4 px-4 py-2 bg-[#36d1cf] hover:bg-[#2eb3b1] text-white text-xs font-bold rounded-lg transition-all border-0 cursor-pointer shadow-sm"
-                >
-                  Connect Account
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Quick Tips Panel */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm flex flex-col justify-between">
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between">
             <div>
-              <h3 className="font-bold text-gray-900 text-lg mb-4 flex items-center gap-2">
-                <Bell className="w-5 h-5 text-amber-500" /> Patient Advisory
-              </h3>
-              <ul className="space-y-4">
-                <li className="flex gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#36d1cf] mt-2 flex-shrink-0" />
-                  <p className="text-xs text-gray-600 leading-relaxed"><strong className="text-gray-800">Check-in time:</strong> Please ensure you arrive 15 minutes before your scheduled slot for registration.</p>
-                </li>
-                <li className="flex gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#36d1cf] mt-2 flex-shrink-0" />
-                  <p className="text-xs text-gray-600 leading-relaxed"><strong className="text-gray-800">Direct Chat:</strong> Message your medical provider post-confirmation directly using the portal's Chats interface.</p>
-                </li>
-              </ul>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Upcoming Bookings</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{stats.upcomingCount}</p>
             </div>
-            <div className="pt-6 border-t border-gray-100 mt-6">
-              <p className="text-[11px] text-gray-400">© 2026 DocFind. All actions secure and encrypted.</p>
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-teal-50">
+              <Calendar className="w-6 h-6" style={{ color: "#36d1cf" }} />
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Favorite Clinicians</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{stats.favoritesCount}</p>
+            </div>
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-rose-50">
+              <Heart className="w-6 h-6 text-rose-500" />
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Direct Consult Chats</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{stats.chatsCount}</p>
+            </div>
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-blue-50">
+              <MessageCircle className="w-6 h-6 text-blue-500" />
             </div>
           </div>
         </div>
+
+        {/* Upcoming Schedule Section */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mb-8">
+          <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+            <h2 className="font-bold text-gray-900 flex items-center gap-2">
+              <Clock className="w-5 h-5 text-gray-400" /> Upcoming Schedule
+            </h2>
+          </div>
+
+          <div className="p-5">
+            {appointments.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-400 font-medium">No bookings found</p>
+                <p className="text-xs text-gray-400 mt-1">Book an appointment to see your schedule here.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {appointments.map((app) => (
+                  <div key={app.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-gray-100 hover:border-gray-200 transition-all gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                        <User className="w-5 h-5 text-gray-500" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900">{app.doctors?.full_name || "Doctor"}</h4>
+                        <p className="text-xs text-gray-500">{app.doctors?.specialization || "General Practitioner"} - {app.clinics?.name || "Clinic"}</p>
+                        <div className="flex items-center gap-1 text-gray-400 text-xs mt-1">
+                          <MapPin className="w-3 h-3" />
+                          <span>{app.clinics?.address}, {app.clinics?.city}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex sm:flex-col items-start sm:items-end justify-between border-t sm:border-t-0 pt-2 sm:pt-0 gap-2">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold capitalize ${
+                        app.status === "confirmed" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
+                        app.status === "pending" ? "bg-amber-50 text-amber-700 border border-amber-100" :
+                        "bg-gray-50 text-gray-700"
+                      }`}>
+                        {app.status}
+                      </span>
+                      <p className="text-xs font-medium text-gray-600">
+                        {app.date} at {app.start_time}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Patient Advisory */}
+        <div className="bg-amber-50/50 rounded-2xl border border-amber-100 p-5">
+          <h4 className="font-semibold text-amber-900 flex items-center gap-2 text-sm mb-3">
+            <AlertCircle className="w-4 h-4 text-amber-600" /> Patient Advisory
+          </h4>
+          <ul className="space-y-2 text-xs text-amber-800 leading-relaxed list-disc pl-4">
+            <li><strong>Check-in time:</strong> Please ensure you arrive 15 minutes before your scheduled slot for registration.</li>
+            <li><strong>Direct Chat:</strong> Message your medical provider post-confirmation directly using the portal&apos;s Chats interface.</li>
+          </ul>
+        </div>
       </main>
-
-      {/* Sync Bottom Navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-2 flex justify-between items-center z-50 shadow-lg">
-        <button onClick={() => router.push("/patient")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
-          <HomeIcon className="w-5 h-5" color={pathname === "/patient" ? "#36d1cf" : "#9ca3af"} />
-          <span className="text-[10px] font-bold" style={{ color: pathname === "/patient" ? "#36d1cf" : "#9ca3af" }}>Home</span>
-        </button>
-
-        <button onClick={() => router.push("/patient/search")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
-          <Search className="w-5 h-5" style={{ color: pathname === "/patient/search" ? "#36d1cf" : "#9ca3af" }} />
-          <span className="text-[10px] font-bold" style={{ color: pathname === "/patient/search" ? "#36d1cf" : "#9ca3af" }}>Find</span>
-        </button>
-
-        <button onClick={() => handleProtectedAction("/patient/appointments")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
-          <Calendar className="w-5 h-5" style={{ color: pathname?.includes("/appointments") ? "#36d1cf" : "#9ca3af" }} />
-          <span className="text-[10px] font-bold" style={{ color: pathname?.includes("/appointments") ? "#36d1cf" : "#9ca3af" }}>Bookings</span>
-        </button>
-
-        <button onClick={() => handleProtectedAction("/patient/profile")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
-          <User className="w-5 h-5" style={{ color: pathname?.includes("/profile") ? "#36d1cf" : "#9ca3af" }} />
-          <span className="text-[10px] font-bold" style={{ color: pathname?.includes("/profile") ? "#36d1cf" : "#9ca3af" }}>Profile</span>
-        </button>
-      </div>
-
-      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} redirectPath="/patient" />
     </div>
-  );
-}
-
-// Temporary internal wrapper to dodge dynamic conflicts with direct imports
-function HomeIcon({ className, color }: { className?: string; color?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
-      <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    </svg>
   );
 }
