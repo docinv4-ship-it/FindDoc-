@@ -25,7 +25,7 @@ export default function PatientSearchPage() {
   const [selectedSpecialization, setSelectedSpecialization] = useState<string>("all");
   const [cities, setCities] = useState<string[]>([]);
   const [specializations, setSpecializations] = useState<string[]>([]);
-  
+
   const router = useRouter();
   const pathname = usePathname();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -34,6 +34,7 @@ export default function PatientSearchPage() {
   useEffect(() => {
     const fetchDataAndSession = async () => {
       try {
+        setLoading(true);
         // 1. Fetch Safe Session
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
@@ -43,65 +44,72 @@ export default function PatientSearchPage() {
         let doctorsData: any[] | null = null;
         let fetchError: any = null;
 
-        // --- SELF-HEALING ARCHITECTURE PIPELINE ---
-        
+        // --- 🛡️ ROBUST SELF-HEALING ARCHITECTURE PIPELINE ---
+
         // Attempt 1: Full Query (All Relations + Onboarded Filter)
+        console.log("🔍 [Pipeline Level 0]: Fetching active onboarded doctors...");
         const attempt1 = await supabase
           .from("doctors")
           .select(`*, clinics (id, name, address, city, consultation_fee), featured_listings (status, expires_at)`)
           .eq("is_onboarded", true);
-        
+
         doctorsData = attempt1.data;
         fetchError = attempt1.error;
 
-        // Attempt 2: Fallback without "is_onboarded" filter (in case column name differs)
-        if (fetchError || !doctorsData) {
-          console.warn("Fallback Level 1: Retrying without 'is_onboarded' constraint...");
+        // Attempt 2: Fallback without "is_onboarded" filter (If no doctors are marked as onboarded in DB yet)
+        if (fetchError || !doctorsData || doctorsData.length === 0) {
+          console.warn("⚠️ [Pipeline Fallback Level 1]: Retrying without 'is_onboarded' constraint...");
           const attempt2 = await supabase
             .from("doctors")
             .select(`*, clinics (id, name, address, city, consultation_fee), featured_listings (status, expires_at)`);
-          
+
           doctorsData = attempt2.data;
           fetchError = attempt2.error;
         }
 
-        // Attempt 3: Fallback without "featured_listings" relation (in case table doesn't exist yet)
-        if (fetchError || !doctorsData) {
-          console.warn("Fallback Level 2: Retrying without 'featured_listings' relationship...");
+        // Attempt 3: Fallback without "featured_listings" relation (If schema/table doesn't exist yet)
+        if (fetchError || !doctorsData || doctorsData.length === 0) {
+          console.warn("⚠️ [Pipeline Fallback Level 2]: Retrying without 'featured_listings' relation...");
           const attempt3 = await supabase
             .from("doctors")
             .select(`*, clinics (id, name, address, city, consultation_fee)`);
-          
+
           doctorsData = attempt3.data;
           fetchError = attempt3.error;
         }
 
-        // Attempt 4: Fallback to singular 'clinic' relation (in case schema names are singular)
-        if (fetchError || !doctorsData) {
-          console.warn("Fallback Level 3: Trying singular 'clinic' join...");
+        // Attempt 4: Fallback to singular 'clinic' relation (In case of 1-to-1 schema relation name differences)
+        if (fetchError || !doctorsData || doctorsData.length === 0) {
+          console.warn("⚠️ [Pipeline Fallback Level 3]: Retrying with singular 'clinic' relation join...");
           const attempt4 = await supabase
             .from("doctors")
             .select(`*, clinic (id, name, address, city, consultation_fee)`);
-          
-          if (attempt4.data) {
+
+          if (attempt4.data && attempt4.data.length > 0) {
             doctorsData = attempt4.data.map((doc: any) => ({
               ...doc,
               clinics: doc.clinic ? (Array.isArray(doc.clinic) ? doc.clinic : [doc.clinic]) : []
             }));
+            fetchError = null;
+          } else {
+            fetchError = attempt4.error;
           }
-          fetchError = attempt4.error;
         }
 
-        // Attempt 5: Bare Minimum Fetch (Guarantees doctor rendering even if relations fail)
-        if (fetchError || !doctorsData) {
-          console.warn("Fallback Level 4: Executing raw bare-minimum doctor fetch...");
-          const attempt5 = await supabase.from("doctors").select(`*`);
+        // Attempt 5: Bare Minimum Fetch (Guarantees doctor rendering and bypasses join table schema failures)
+        if (fetchError || !doctorsData || doctorsData.length === 0) {
+          console.warn("🚨 [Pipeline Fallback Level 4]: Executing raw bare-minimum doctor query...");
+          const attempt5 = await supabase
+            .from("doctors")
+            .select(`*`);
+          
           doctorsData = attempt5.data;
           fetchError = attempt5.error;
         }
 
-        // 2. Normalization to prevent front-end crashes (clinics is guaranteed to be an array)
-        if (doctorsData) {
+        // 2. Normalization & Sanitization to prevent Front-end Crashes
+        if (doctorsData && doctorsData.length > 0) {
+          console.log(`✅ [Pipeline Success]: Successfully loaded ${doctorsData.length} doctors.`);
           const normalizedDoctors: DoctorWithClinic[] = doctorsData.map((doc: any) => {
             let finalClinics = [];
             if (doc.clinics) {
@@ -116,7 +124,7 @@ export default function PatientSearchPage() {
             };
           });
 
-          // Sort by featured listings first
+          // Sort by featured status, then alphabetically by name
           const sortedDoctors = normalizedDoctors.sort((a, b) => {
             const aFeatured = a.featured_listings?.some(f => f.status === "active" && new Date(f.expires_at) > new Date());
             const bFeatured = b.featured_listings?.some(f => f.status === "active" && new Date(f.expires_at) > new Date());
@@ -127,7 +135,7 @@ export default function PatientSearchPage() {
 
           setDoctors(sortedDoctors);
 
-          // Populate filters safely
+          // Build filter metrics lists safely
           const citySet = new Set<string>();
           const specSet = new Set<string>();
           normalizedDoctors.forEach((doc) => {
@@ -139,14 +147,16 @@ export default function PatientSearchPage() {
           setCities(Array.from(citySet).sort());
           setSpecializations(Array.from(specSet).sort());
         } else {
-          console.error("All doctor queries failed in self-healing pipeline:", fetchError);
+          console.error("❌ [Pipeline Error]: All secure queries returned null or empty sets. Check RLS or empty tables.");
+          setDoctors([]);
         }
       } catch (err) {
-        console.error("Critical System error on fetching patient dashboard:", err);
+        console.error("🔥 [Critical System Error] fetching patient dashboard data:", err);
       } finally {
         setLoading(false);
       }
     };
+    
     fetchDataAndSession();
   }, [supabase]);
 
@@ -170,21 +180,21 @@ export default function PatientSearchPage() {
     }
   };
 
-  // Safe lowercased robust filters
+  // Filtering rules
   const filteredDoctors = doctors.filter((doc) => {
     const fullName = doc.full_name || "";
     const specialization = doc.specialization || "";
-    
+
     const matchesSearch = !searchQuery || 
       fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
       specialization.toLowerCase().includes(searchQuery.toLowerCase());
-      
+
     const matchesSpec = selectedSpecialization === "all" || 
       specialization === selectedSpecialization;
-      
+
     const matchesCity = selectedCity === "all" || 
       (doc.clinics && doc.clinics.some((clinic) => clinic?.city?.toLowerCase() === selectedCity.toLowerCase()));
-      
+
     return matchesSearch && matchesSpec && matchesCity;
   });
 
@@ -210,7 +220,7 @@ export default function PatientSearchPage() {
               <Stethoscope className="w-8 h-8 text-[#36d1cf]" />
               <span className="text-xl font-bold text-gray-900">DocFind</span>
             </div>
-            
+
             {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center gap-6">
               <button onClick={() => router.push("/patient")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Home</button>
@@ -218,7 +228,7 @@ export default function PatientSearchPage() {
               <button onClick={() => handleProtectedAction("/patient/favorites")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Favorites</button>
               <button onClick={() => handleProtectedAction("/patient/chats")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Chats</button>
               <button onClick={() => handleProtectedAction("/patient/appointments")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Appointments</button>
-              
+
               {user ? (
                 <div className="flex items-center gap-3">
                   <button onClick={() => router.push("/patient/profile")} className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 px-3.5 py-1.5 rounded-xl transition-all border-0 cursor-pointer">
@@ -247,7 +257,7 @@ export default function PatientSearchPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-        
+
         {/* Dynamic Warning Alert for Guest Users */}
         {!user && (
           <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4.5 bg-amber-50 border border-amber-100 rounded-2xl text-amber-800 animate-fade-in">
@@ -404,7 +414,7 @@ export default function PatientSearchPage() {
         </button>
       </div>
 
-      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} redirectPath="/patient" />
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} redirectPath="/patient/search" />
     </div>
   );
 }
