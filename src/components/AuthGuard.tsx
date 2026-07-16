@@ -63,10 +63,16 @@ export default function AuthGuard({ children, currentPath }: AuthGuardProps) {
 
   const handleGoogleLogin = async () => {
     try {
+      // 🔥 FIX: Pure currentPath drops all search/query parameters (doctor_id, clinic_id, etc.)
+      // We capture window.location.pathname + window.location.search dynamically so params aren't lost after redirect!
+      const fullRedirectPath = typeof window !== "undefined"
+        ? window.location.pathname + window.location.search
+        : currentPath;
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(currentPath)}`,
+          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(fullRedirectPath)}`,
         },
       });
       if (error) throw error;
