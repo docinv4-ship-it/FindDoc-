@@ -9,11 +9,11 @@ export async function GET(request: Request) {
   if (code) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
-    
+
     if (!error) {
       const forwardedHost = request.headers.get('x-forwarded-host')
       const isLocalEnv = process.env.NODE_ENV === 'development'
-      
+
       if (isLocalEnv) {
         return NextResponse.redirect(`${origin}${next}`)
       } else if (forwardedHost) {
@@ -24,6 +24,6 @@ export async function GET(request: Request) {
     }
   }
 
-  // Default redirect if dynamic exchange encounters an issue
-  return NextResponse.redirect(`${origin}/login?error=auth-code-exchange-failed`)
+  // FIXED: Redirecting to home page instead of /login to prevent 404 crash
+  return NextResponse.redirect(`${origin}/?error=auth-code-exchange-failed`)
 }
