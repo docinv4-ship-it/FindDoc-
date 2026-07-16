@@ -17,6 +17,11 @@ import AuthGuard from "@/components/AuthGuard";
 
 const FAVORITES_KEY = "docfind_favorites";
 
+// ==========================================
+// 🛠️ CONFIGURATION: Find Doctors ka exact path yahan set karein!
+const FIND_DOCTORS_ROUTE = "/patient/search"; 
+// ==========================================
+
 function PatientFavoritesContent() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -24,7 +29,7 @@ function PatientFavoritesContent() {
   const [favoriteDoctors, setFavoriteDoctors] = useState<any[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const router = useRouter();
-  
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
@@ -38,7 +43,7 @@ function PatientFavoritesContent() {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           setCurrentUser(user);
-          
+
           // Fetch saved doctor IDs from localStorage
           const saved = localStorage.getItem(FAVORITES_KEY);
           if (saved) {
@@ -117,14 +122,19 @@ function PatientFavoritesContent() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
-            <button onClick={() => router.push("/patient")} className="flex items-center gap-2">
+            <button onClick={() => router.push("/patient")} className="flex items-center gap-2 bg-transparent border-0 text-left cursor-pointer">
               <Stethoscope className="w-8 h-8" style={{ color: "#36d1cf" }} />
               <span className="text-xl font-bold text-gray-900">DocFind</span>
             </button>
             <div className="flex items-center gap-4">
-              <button onClick={() => router.push("/patient/chats")} className="text-sm text-gray-600 hover:text-gray-900">Chats</button>
-              <button onClick={() => router.push("/patient/appointments")} className="text-sm text-gray-600 hover:text-gray-900">Appointments</button>
-              <button onClick={() => router.push("/patient")} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl transition-colors hover:bg-teal-600 shadow-sm" style={{ backgroundColor: "#36d1cf" }}>
+              <button onClick={() => router.push("/patient/chats")} className="text-sm font-medium text-gray-600 hover:text-gray-900 bg-transparent border-0 cursor-pointer">Chats</button>
+              <button onClick={() => router.push("/patient/appointments")} className="text-sm font-medium text-gray-600 hover:text-gray-900 bg-transparent border-0 cursor-pointer">Appointments</button>
+              {/* ✅ FIXED PATH: Redirects properly to /patient/search */}
+              <button 
+                onClick={() => router.push(FIND_DOCTORS_ROUTE)} 
+                className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl transition-colors hover:bg-teal-600 shadow-sm border-0 cursor-pointer" 
+                style={{ backgroundColor: "#36d1cf" }}
+              >
                 <User className="w-4 h-4" /> Find Doctors
               </button>
             </div>
@@ -159,8 +169,12 @@ function PatientFavoritesContent() {
             {favoriteDoctors.map((doctor) => {
               // Extract the single clinic safely, whether it returns an array or direct object
               const clinic = Array.isArray(doctor.clinics) ? doctor.clinics[0] : doctor.clinics;
-              const profileUrl = clinic?.slug ? `/clinic/${clinic.slug}` : `/doctor/${doctor.id}`;
               
+              // ✅ IMPROVED LINK: Instantly loads the clinic dashboard pre-focused on this doctor!
+              const profileUrl = clinic?.slug 
+                ? `/clinic/${clinic.slug}?doctor=${doctor.id}` 
+                : `/doctor/${doctor.id}`;
+
               return (
                 <div key={doctor.id} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
                   <div className="flex items-center gap-4">
@@ -184,14 +198,14 @@ function PatientFavoritesContent() {
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button 
                         onClick={() => router.push(profileUrl)} 
-                        className="px-4 py-2 text-white text-sm font-bold rounded-lg shadow-sm transition-colors hover:bg-teal-600" 
+                        className="px-4 py-2 text-white text-sm font-bold rounded-lg shadow-sm transition-colors hover:bg-teal-600 border-0 cursor-pointer" 
                         style={{ backgroundColor: "#36d1cf" }}
                       >
                         Book
                       </button>
                       <button 
                         onClick={() => removeFavorite(doctor.id)} 
-                        className="p-2.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        className="p-2.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors bg-transparent border-0 cursor-pointer"
                         title="Remove from favorites"
                       >
                         <Heart className="w-5 h-5 fill-red-500 text-red-500" />
@@ -208,9 +222,10 @@ function PatientFavoritesContent() {
               <Heart className="w-12 h-12 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-700 font-bold">No favorite doctors saved yet</p>
               <p className="text-sm text-gray-500 mt-1">Browse clinic and doctor profiles to save your preferred health specialists.</p>
+              {/* ✅ FIXED PATH: Empty state action also points to FIND_DOCTORS_ROUTE */}
               <button 
-                onClick={() => router.push("/patient")} 
-                className="mt-6 px-6 py-2.5 text-white font-bold text-sm rounded-xl shadow-md transition-colors hover:bg-teal-600" 
+                onClick={() => router.push(FIND_DOCTORS_ROUTE)} 
+                className="mt-6 px-6 py-2.5 text-white font-bold text-sm rounded-xl shadow-md transition-colors hover:bg-teal-600 border-0 cursor-pointer" 
                 style={{ backgroundColor: "#36d1cf" }}
               >
                 Find Doctors
