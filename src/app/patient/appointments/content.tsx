@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -16,6 +17,13 @@ import {
   Mail 
 } from "lucide-react";
 
+// ==========================================
+// 🛠️ CONFIGURATION: Find Doctors ka exact path yahan set karein!
+// Agar aapka search page "/patient/search" hai, ya "/patient/find", ya "/doctors" hai, 
+// toh bas is niche wali line ko change karein, poore page ke buttons sahi ho jayenge.
+const FIND_DOCTORS_ROUTE = "/patient/search"; 
+// ==========================================
+
 interface Appointment {
   id: string;
   appointment_date: string;
@@ -33,12 +41,12 @@ export default function PatientAppointmentsContent() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Selection and Cancellation
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
-  
+
   // Rescheduling
   const [newDate, setNewDate] = useState("");
   const [newStartTime, setNewStartTime] = useState("");
@@ -46,7 +54,7 @@ export default function PatientAppointmentsContent() {
   const [availableSlots, setAvailableSlots] = useState<{start_time: string; end_time: string}[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
-  
+
   const router = useRouter();
   const supabase = createClient();
 
@@ -211,6 +219,7 @@ export default function PatientAppointmentsContent() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
+            {/* Logo clicks go back to Dashboard Home */}
             <button onClick={() => router.push("/patient")} className="flex items-center gap-2">
               <Stethoscope className="w-8 h-8" style={{ color: "#36d1cf" }} />
               <span className="text-xl font-bold text-gray-900">DocFind</span>
@@ -218,7 +227,8 @@ export default function PatientAppointmentsContent() {
             <nav className="flex items-center gap-4">
               <button onClick={() => router.push("/patient/favorites")} className="text-sm text-gray-600 hover:text-gray-900">Favorites</button>
               <button onClick={() => router.push("/patient/chats")} className="text-sm text-gray-600 hover:text-gray-900">Chats</button>
-              <button onClick={() => router.push("/patient")} className="text-sm font-medium" style={{ color: "#36d1cf" }}>Find Doctors</button>
+              {/* ✅ FIXED PATH: Now dynamically uses FIND_DOCTORS_ROUTE */}
+              <button onClick={() => router.push(FIND_DOCTORS_ROUTE)} className="text-sm font-medium" style={{ color: "#36d1cf" }}>Find Doctors</button>
             </nav>
           </div>
         </div>
@@ -302,7 +312,8 @@ export default function PatientAppointmentsContent() {
                 <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-600 font-bold">No appointments found</p>
                 <p className="text-sm text-gray-500 mt-1">We couldn't find any appointments linked to your credentials.</p>
-                <button onClick={() => router.push("/patient")} className="mt-6 px-6 py-3 bg-[#36d1cf] hover:bg-teal-600 text-white font-bold rounded-xl transition-colors shadow-md hover:shadow-lg">
+                {/* ✅ FIXED PATH: Now dynamically uses FIND_DOCTORS_ROUTE */}
+                <button onClick={() => router.push(FIND_DOCTORS_ROUTE)} className="mt-6 px-6 py-3 bg-[#36d1cf] hover:bg-teal-600 text-white font-bold rounded-xl transition-colors shadow-md hover:shadow-lg">
                   Find a Doctor
                 </button>
               </div>
@@ -331,9 +342,9 @@ export default function PatientAppointmentsContent() {
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">Reason for cancellation (optional)</label>
                 <input type="text" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Please let us know why you are cancelling..." className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#36d1cf]" />
               </div>
-              
+
               {error && <p className="text-sm text-red-600">{error}</p>}
-              
+
               <div className="flex gap-3 mt-6">
                 <button type="button" onClick={() => { setStep("results"); setSelectedAppointment(null); }} className="flex-1 py-3 border border-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-50 transition-colors">
                   Go Back
@@ -366,7 +377,7 @@ export default function PatientAppointmentsContent() {
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">Select New Date</label>
                 <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} min={new Date().toISOString().split("T")[0]} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#36d1cf]" required />
               </div>
-              
+
               <button type="button" onClick={handleLoadSlots} disabled={!newDate || loadingSlots} className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors disabled:opacity-50">
                 {loadingSlots ? "Loading slots..." : "Check Available Slots"}
               </button>
@@ -383,9 +394,9 @@ export default function PatientAppointmentsContent() {
                   </div>
                 </div>
               )}
-              
+
               {error && <p className="text-sm text-red-600">{error}</p>}
-              
+
               <div className="flex gap-3 mt-6">
                 <button type="button" onClick={() => { setStep("results"); setSelectedAppointment(null); }} className="flex-1 py-3 border border-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-50 transition-colors">
                   Go Back
