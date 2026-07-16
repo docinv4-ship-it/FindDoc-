@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, usePathname } from "next/navigation";
-import { Loader2, Search, MapPin, Stethoscope, User, Star, Home, Calendar, Bell, Heart, MessageSquare } from "lucide-react";
+import { Loader2, Search, MapPin, Stethoscope, User, Star, Home, Calendar, Bell, Heart, MessageSquare, LogOut, ShieldAlert } from "lucide-react";
+import AuthModal from "@/components/AuthModal";
 import type { Database } from "@/types/database";
 
 type Doctor = Database["public"]["Tables"]["doctors"]["Row"];
@@ -16,49 +17,86 @@ interface DoctorWithClinic extends Doctor {
 export default function PatientSearchPage() {
   const [loading, setLoading] = useState(true);
   const [doctors, setDoctors] = useState<DoctorWithClinic[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [user, setUser] = useState<any>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCity, setSelectedCity] = useState<string>("all");
   const [selectedSpecialization, setSelectedSpecialization] = useState<string>("all");
   const [cities, setCities] = useState<string[]>([]);
   const [specializations, setSpecializations] = useState<string[]>([]);
+  
   const router = useRouter();
   const pathname = usePathname();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
   useEffect(() => {
-    const fetchData = async () => {
-      const { data: doctorsData, error } = await supabase
-        .from("doctors")
-        .select(`*, clinics (id, name, address, city, consultation_fee), featured_listings (status, expires_at)`)
-        .eq("is_onboarded", true)
-        .order("full_name", { ascending: true });
+    const fetchDataAndSession = async () => {
+      try {
+        // 1. Get User Session
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setUser(session.user);
+        }
 
-      if (!error && doctorsData) {
-        const sortedDoctors = (doctorsData as DoctorWithClinic[]).sort((a, b) => {
-          const aFeatured = a.featured_listings?.some(f => f.status === "active" && new Date(f.expires_at) > new Date());
-          const bFeatured = b.featured_listings?.some(f => f.status === "active" && new Date(f.expires_at) > new Date());
-          if (aFeatured && !bFeatured) return -1;
-          if (!aFeatured && bFeatured) return 1;
-          return (a.full_name || "").localeCompare(b.full_name || "");
-        });
-        setDoctors(sortedDoctors);
-        
-        const citySet = new Set<string>();
-        const specSet = new Set<string>();
-        doctorsData.forEach((doc: DoctorWithClinic) => {
-          if (doc.specialization) specSet.add(doc.specialization);
-          doc.clinics?.forEach((clinic: { city: string }) => {
-            if (clinic.city) citySet.add(clinic.city);
+        // 2. Get Doctors List
+        const { data: doctorsData, error } = await supabase
+          .from("doctors")
+          .select(`*, clinics (id, name, address, city, consultation_fee), featured_listings (status, expires_at)`)
+          .eq("is_onboarded", true)
+          .order("full_name", { ascending: true });
+
+        if (!error && doctorsData) {
+          const sortedDoctors = (doctorsData as DoctorWithClinic[]).sort((a, b) => {
+            const aFeatured = a.featured_listings?.some(f => f.status === "active" && new Date(f.expires_at) > new Date());
+            const bFeatured = b.featured_listings?.some(f => f.status === "active" && new Date(f.expires_at) > new Date());
+            if (aFeatured && !bFeatured) return -1;
+            if (!aFeatured && bFeatured) return 1;
+            return (a.full_name || "").localeCompare(b.full_name || "");
           });
-        });
-        setCities(Array.from(citySet).sort());
-        setSpecializations(Array.from(specSet).sort());
+          setDoctors(sortedDoctors);
+
+          const citySet = new Set<string>();
+          const specSet = new Set<string>();
+          doctorsData.forEach((doc: DoctorWithClinic) => {
+            if (doc.specialization) specSet.add(doc.specialization);
+            doc.clinics?.forEach((clinic: { city: string }) => {
+              if (clinic.city) citySet.add(clinic.city);
+            });
+          });
+          setCities(Array.from(citySet).sort());
+          setSpecializations(Array.from(specSet).sort());
+        }
+      } catch (err) {
+        console.error("System error on fetching patient dashboard:", err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
-    fetchData();
+    fetchDataAndSession();
   }, [supabase]);
+
+  const handleLogout = async () => {
+    try {
+      setLoading(true);
+      await supabase.auth.signOut();
+      setUser(null);
+      router.replace("/");
+    } catch (err) {
+      console.error("Logout error:", err);
+      setLoading(false);
+    }
+  };
+
+  const handleProtectedAction = (targetPath: string) => {
+    if (!user) {
+      // If Guest, trigger auth pop-up
+      setIsAuthModalOpen(true);
+    } else {
+      router.push(targetPath);
+    }
+  };
 
   const filteredDoctors = doctors.filter((doc) => {
     const matchesSearch = !searchQuery || doc.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) || doc.specialization?.toLowerCase().includes(searchQuery.toLowerCase());
@@ -74,7 +112,7 @@ export default function PatientSearchPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} />
+        <Loader2 className="w-8 h-8 animate-spin text-[#36d1cf]" />
       </div>
     );
   }
@@ -86,19 +124,39 @@ export default function PatientSearchPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push("/")}>
-              <Stethoscope className="w-8 h-8" style={{ color: "#36d1cf" }} />
+              <Stethoscope className="w-8 h-8 text-[#36d1cf]" />
               <span className="text-xl font-bold text-gray-900">DocFind</span>
             </div>
-            {/* Desktop Navigation (Added All Missing Navigation Buttons Here) */}
+            
+            {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center gap-6">
-              <button onClick={() => router.push("/")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors">Home</button>
-              <button onClick={() => router.push("/patient")} className="text-sm font-semibold text-[#36d1cf] transition-colors border-b-2 border-[#36d1cf] pb-1">Find Doctors</button>
-              <button onClick={() => router.push("/patient/favorites")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors">Favorites</button>
-              <button onClick={() => router.push("/patient/chats")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors">Chats</button>
-              <button onClick={() => router.push("/patient/appointments")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors">Appointments</button>
-              <button onClick={() => router.push("/patient/profile")} className="flex items-center gap-1 text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors">
-                <User className="w-4 h-4" /> Account
-              </button>
+              <button onClick={() => router.push("/")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Home</button>
+              <button onClick={() => router.push("/patient")} className="text-sm font-semibold text-[#36d1cf] transition-colors border-b-2 border-[#36d1cf] pb-1 bg-transparent border-0 cursor-pointer">Find Doctors</button>
+              <button onClick={() => handleProtectedAction("/patient/favorites")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Favorites</button>
+              <button onClick={() => handleProtectedAction("/patient/chats")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Chats</button>
+              <button onClick={() => handleProtectedAction("/patient/appointments")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Appointments</button>
+              
+              {user ? (
+                <div className="flex items-center gap-3">
+                  <button onClick={() => router.push("/patient/profile")} className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 px-3.5 py-1.5 rounded-xl transition-all border-0 cursor-pointer">
+                    <User className="w-4 h-4 text-gray-500" /> {user.email?.split("@")[0]}
+                  </button>
+                  <button 
+                    onClick={handleLogout}
+                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors bg-transparent border-0 cursor-pointer"
+                    title="Logout"
+                  >
+                    <LogOut className="h-5 w-5" />
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="px-4 py-2 text-sm font-bold text-white bg-[#36d1cf] hover:bg-[#2eb3b1] rounded-xl transition-all border-0 cursor-pointer shadow-sm"
+                >
+                  Sign In / Register
+                </button>
+              )}
             </nav>
           </div>
         </div>
@@ -106,6 +164,23 @@ export default function PatientSearchPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+        
+        {/* Dynamic Warning Alert for Guest Users */}
+        {!user && (
+          <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4.5 bg-amber-50 border border-amber-100 rounded-2xl text-amber-800 animate-fade-in">
+            <div className="flex items-center gap-3">
+              <ShieldAlert className="h-5 w-5 text-amber-600 flex-shrink-0" />
+              <p className="text-sm font-bold tracking-tight">You are currently in Guest Mode. You can search doctors, but scheduling appointments requires logging in.</p>
+            </div>
+            <button 
+              onClick={() => setIsAuthModalOpen(true)}
+              className="text-xs font-black bg-amber-600 text-white px-4 py-2 rounded-xl hover:bg-amber-700 active:scale-95 transition-all border-0 cursor-pointer whitespace-nowrap"
+            >
+              Unlock Full Access
+            </button>
+          </div>
+        )}
+
         <div className="text-center mb-6 md:mb-8">
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">Find Your Doctor</h1>
           <p className="text-sm md:text-base text-gray-600">Search for doctors by name, specialization, or location</p>
@@ -130,7 +205,7 @@ export default function PatientSearchPage() {
               <select 
                 value={selectedCity} 
                 onChange={(e) => setSelectedCity(e.target.value)} 
-                className="w-full py-1 focus:outline-none text-sm bg-transparent"
+                className="w-full py-1 focus:outline-none text-sm bg-transparent border-0"
               >
                 <option value="all">All Cities</option>
                 {cities.map((city) => (<option key={city} value={city}>{city}</option>))}
@@ -141,7 +216,7 @@ export default function PatientSearchPage() {
               <select 
                 value={selectedSpecialization} 
                 onChange={(e) => setSelectedSpecialization(e.target.value)} 
-                className="w-full py-1 focus:outline-none text-sm bg-transparent"
+                className="w-full py-1 focus:outline-none text-sm bg-transparent border-0"
               >
                 <option value="all">All Specializations</option>
                 {specializations.map((spec) => (<option key={spec} value={spec}>{spec}</option>))}
@@ -203,11 +278,10 @@ export default function PatientSearchPage() {
                     )}
                   </div>
 
-                  {/* Stable Button with fixed color on ALL devices */}
                   <div className="px-5 pb-5 pt-1">
                     <button 
-                      onClick={() => router.push(`/doctor/${doctor.id}`)} 
-                      className="w-full py-2.5 text-white font-semibold rounded-lg transition-all text-sm shadow-sm hover:brightness-105 active:scale-[0.98]"
+                      onClick={() => handleProtectedAction(`/doctor/${doctor.id}`)} 
+                      className="w-full py-2.5 text-white font-semibold rounded-lg transition-all text-sm shadow-sm hover:brightness-105 active:scale-[0.98] border-0 cursor-pointer"
                       style={{ backgroundColor: "#36d1cf" }}
                     >
                       View Profile & Book
@@ -227,31 +301,38 @@ export default function PatientSearchPage() {
 
       {/* Synchronized Mobile Bottom Navigation */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-2 flex justify-between items-center z-50 shadow-lg">
-        <button onClick={() => router.push("/")} className="flex flex-col items-center gap-1 bg-transparent border-0">
+        <button onClick={() => router.push("/")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
           <Home className="w-5 h-5" style={{ color: pathname === "/" ? "#36d1cf" : "#9ca3af" }} />
           <span className="text-[10px] font-medium" style={{ color: pathname === "/" ? "#36d1cf" : "#9ca3af" }}>Home</span>
         </button>
 
-        <button onClick={() => router.push("/patient")} className="flex flex-col items-center gap-1 bg-transparent border-0">
+        <button onClick={() => router.push("/patient")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
           <Search className="w-5 h-5" style={{ color: pathname === "/patient" ? "#36d1cf" : "#9ca3af" }} />
           <span className="text-[10px] font-medium" style={{ color: pathname === "/patient" ? "#36d1cf" : "#9ca3af" }}>Find</span>
         </button>
 
-        <button onClick={() => router.push("/patient/appointments")} className="flex flex-col items-center gap-1 bg-transparent border-0">
+        <button onClick={() => handleProtectedAction("/patient/appointments")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
           <Calendar className="w-5 h-5" style={{ color: pathname?.includes("/appointments") ? "#36d1cf" : "#9ca3af" }} />
           <span className="text-[10px] font-medium" style={{ color: pathname?.includes("/appointments") ? "#36d1cf" : "#9ca3af" }}>Bookings</span>
         </button>
 
-        <button onClick={() => router.push("/patient/notifications")} className="flex flex-col items-center gap-1 bg-transparent border-0">
+        <button onClick={() => handleProtectedAction("/patient/notifications")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
           <Bell className="w-5 h-5" style={{ color: pathname?.includes("/notifications") ? "#36d1cf" : "#9ca3af" }} />
           <span className="text-[10px] font-medium" style={{ color: pathname?.includes("/notifications") ? "#36d1cf" : "#9ca3af" }}>Alerts</span>
         </button>
 
-        <button onClick={() => router.push("/patient/profile")} className="flex flex-col items-center gap-1 bg-transparent border-0">
+        <button onClick={() => handleProtectedAction("/patient/profile")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
           <User className="w-5 h-5" style={{ color: pathname?.includes("/profile") ? "#36d1cf" : "#9ca3af" }} />
           <span className="text-[10px] font-medium" style={{ color: pathname?.includes("/profile") ? "#36d1cf" : "#9ca3af" }}>Profile</span>
         </button>
       </div>
+
+      {/* Pop-up AuthModal for guest interceptors */}
+      <AuthModal 
+        isOpen={isAuthModalOpen} 
+        onClose={() => setIsAuthModalOpen(false)} 
+        redirectPath="/patient"
+      />
     </div>
   );
 }
