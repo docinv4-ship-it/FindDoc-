@@ -8,6 +8,11 @@ import {
   Clock, MapPin, AlertCircle, Heart, ArrowRight 
 } from "lucide-react";
 
+// ==========================================
+// 🛠️ CONFIGURATION: Find Doctors ka exact path yahan set karein!
+const FIND_DOCTORS_ROUTE = "/patient/search"; 
+// ==========================================
+
 interface Appointment {
   id: string;
   date: string;
@@ -69,13 +74,27 @@ export default function PatientDashboard() {
           .select("*", { count: "exact", head: true })
           .eq("patient_id", patientId);
 
-        // 4. Favorites Count (Corrected: From 'patient_favorites' table)
+        // 4. Favorites Count (From 'patient_favorites' table)
         const { count: favCount } = await supabase
           .from("patient_favorites")
           .select("*", { count: "exact", head: true })
           .eq("patient_id", patientId);
 
-        const realAppointments = appData || [];
+        // ✅ FIX: Map data dynamically to ensure TypeScript doesn't see them as raw arrays
+        const rawAppointments = appData || [];
+        const realAppointments: Appointment[] = rawAppointments.map((app: any) => ({
+          id: app.id,
+          date: app.date,
+          start_time: app.start_time,
+          status: app.status,
+          clinics: Array.isArray(app.clinics) 
+            ? (app.clinics[0] || null) 
+            : (app.clinics || null),
+          doctors: Array.isArray(app.doctors) 
+            ? (app.doctors[0] || null) 
+            : (app.doctors || null),
+        }));
+
         setAppointments(realAppointments);
 
         // Filter active upcoming bookings
@@ -111,12 +130,12 @@ export default function PatientDashboard() {
       {/* Header */}
       <header className="bg-white border-b border-gray-100 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: "#36d1cf" }}>
+          <button onClick={() => router.push("/patient")} className="flex items-center gap-3 bg-transparent border-0 text-left">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center animate-pulse" style={{ backgroundColor: "#36d1cf" }}>
               <Stethoscope className="w-6 h-6 text-white" />
             </div>
             <span className="text-2xl font-bold text-gray-900">DocFind</span>
-          </div>
+          </button>
           <div className="flex items-center gap-4">
             <span className="text-sm font-medium text-gray-600 bg-gray-100 px-3 py-1.5 rounded-full">
               {user?.email || "Patient Profile"}
@@ -141,8 +160,9 @@ export default function PatientDashboard() {
             <h3 className="text-lg font-semibold text-gray-900">Need professional care?</h3>
             <p className="text-sm text-gray-600">Connect instantly with the region&apos;s highest-ranked healthcare consultants.</p>
           </div>
+          {/* ✅ FIXED PATH: Now properly redirects to finding doctor page */}
           <button 
-            onClick={() => router.push("/patient")} 
+            onClick={() => router.push(FIND_DOCTORS_ROUTE)} 
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-medium shadow-sm transition-all hover:opacity-90 self-start md:self-auto"
             style={{ backgroundColor: "#36d1cf" }}
           >
@@ -207,9 +227,11 @@ export default function PatientDashboard() {
                       </div>
                       <div>
                         <h4 className="font-semibold text-gray-900">{app.doctors?.full_name || "Doctor"}</h4>
-                        <p className="text-xs text-gray-500">{app.doctors?.specialization || "General Practitioner"} - {app.clinics?.name || "Clinic"}</p>
+                        <p className="text-xs text-gray-500">
+                          {app.doctors?.specialization || "General Practitioner"} - {app.clinics?.name || "Clinic"}
+                        </p>
                         <div className="flex items-center gap-1 text-gray-400 text-xs mt-1">
-                          <MapPin className="w-3 h-3" />
+                          <MapPin className="w-3 h-3 animate-bounce" style={{ color: "#36d1cf" }} />
                           <span>{app.clinics?.address}, {app.clinics?.city}</span>
                         </div>
                       </div>
