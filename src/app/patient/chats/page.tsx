@@ -22,6 +22,11 @@ import {
 import AuthGuard from "@/components/AuthGuard";
 import type { Database } from "@/types/database";
 
+// ==========================================
+// 🛠️ CONFIGURATION: Find Doctors ka exact path yahan set karein!
+const FIND_DOCTORS_ROUTE = "/patient/search"; 
+// ==========================================
+
 type Message = Database["public"]["Tables"]["messages"]["Row"];
 
 function PatientChatsContent() {
@@ -44,7 +49,7 @@ function PatientChatsContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
@@ -57,16 +62,16 @@ function PatientChatsContent() {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           setCurrentUser(user);
-          
+
           // Lookup patient profile by User ID or linked Email
           let patientProfile = null;
-          
+
           const { data: profileById } = await supabase
             .from("patients")
             .select("id")
             .eq("id", user.id)
             .maybeSingle();
-            
+
           patientProfile = profileById;
 
           if (!patientProfile && user.email) {
@@ -105,7 +110,7 @@ function PatientChatsContent() {
       .select("id, doctor_id, clinic_id, status, created_at, doctors (full_name, profile_image_url), clinics (name)")
       .eq("patient_id", pId)
       .order("created_at", { ascending: false });
-    
+
     if (convError) {
       setError("Unable to load active chats.");
     } else if (data) {
@@ -138,7 +143,7 @@ function PatientChatsContent() {
         content: newMessage.trim(),
       })
       .select();
-    
+
     if (!sendError && data) {
       setMessages((prev) => [...prev, data[0]]);
       setNewMessage("");
@@ -266,11 +271,15 @@ function PatientChatsContent() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <button onClick={() => router.push("/patient")} className="flex items-center gap-2">
+            <button onClick={() => router.push("/patient")} className="flex items-center gap-2 bg-transparent border-0 text-left">
               <Stethoscope className="w-8 h-8" style={{ color: "#36d1cf" }} />
               <span className="text-xl font-bold text-gray-900">DocFind</span>
             </button>
-            <button onClick={() => router.push("/patient")} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900">
+            {/* ✅ FIXED PATH: Redirects properly using FIND_DOCTORS_ROUTE instead of "/patient" */}
+            <button 
+              onClick={() => router.push(FIND_DOCTORS_ROUTE)} 
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 bg-transparent border-0 cursor-pointer"
+            >
               <User className="w-4 h-4" /> Find Doctors
             </button>
           </div>
@@ -338,7 +347,7 @@ function PatientChatsContent() {
 
         {step === "chat" && selectedConversation && (
           <div>
-            <button onClick={() => { setStep("chats"); setSelectedConversation(null); setShowMenu(false); setShowReportModal(false); }} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4 font-semibold">
+            <button onClick={() => { setStep("chats"); setSelectedConversation(null); setShowMenu(false); setShowReportModal(false); }} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4 font-semibold bg-transparent border-0 cursor-pointer">
               <ArrowLeft className="w-5 h-5" /> Back to Chats
             </button>
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
@@ -357,19 +366,19 @@ function PatientChatsContent() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={handleCreateBooking} className="flex items-center gap-2 px-3 py-1.5 text-white text-sm font-bold rounded-lg transition-colors shadow-sm hover:bg-teal-600" style={{ backgroundColor: "#36d1cf" }}>
+                  <button onClick={handleCreateBooking} className="flex items-center gap-2 px-3 py-1.5 text-white text-sm font-bold rounded-lg transition-colors shadow-sm hover:bg-teal-600 border-0 cursor-pointer" style={{ backgroundColor: "#36d1cf" }}>
                     <Calendar className="w-4 h-4" />Book
                   </button>
                   <div className="relative" ref={menuRef}>
-                    <button onClick={() => setShowMenu(!showMenu)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                    <button onClick={() => setShowMenu(!showMenu)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors border-0 bg-transparent cursor-pointer">
                       <MoreVertical className="w-5 h-5 text-gray-600" />
                     </button>
                     {showMenu && (
                       <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[160px]">
-                        <button onClick={isBlocked ? handleUnblockUser : handleBlockUser} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left hover:bg-gray-50 text-red-600 font-semibold">
+                        <button onClick={isBlocked ? handleUnblockUser : handleBlockUser} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left hover:bg-gray-50 text-red-600 font-semibold bg-transparent border-0 cursor-pointer">
                           {isBlocked ? <><X className="w-4 h-4" /> Unblock Doctor</> : <><Ban className="w-4 h-4" /> Block Doctor</>}
                         </button>
-                        <button onClick={() => { setShowMenu(false); setShowReportModal(true); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left hover:bg-gray-50 text-orange-600 border-t border-gray-100 font-semibold">
+                        <button onClick={() => { setShowMenu(false); setShowReportModal(true); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left hover:bg-gray-50 text-orange-600 border-t border-gray-100 font-semibold bg-transparent cursor-pointer">
                           <Flag className="w-4 h-4" /> Report Doctor
                         </button>
                       </div>
@@ -392,7 +401,7 @@ function PatientChatsContent() {
               </div>
               <form onSubmit={sendMessage} className="p-4 border-t border-gray-200 flex gap-2 bg-white">
                 <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type a message safely..." className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#36d1cf]" />
-                <button type="submit" disabled={sending || !newMessage.trim()} className="p-3 rounded-xl text-white disabled:opacity-50 transition-transform active:scale-95 flex items-center justify-center" style={{ backgroundColor: "#36d1cf" }}>
+                <button type="submit" disabled={sending || !newMessage.trim()} className="p-3 rounded-xl text-white disabled:opacity-50 transition-transform active:scale-95 flex items-center justify-center border-0 cursor-pointer" style={{ backgroundColor: "#36d1cf" }}>
                   {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                 </button>
               </form>
@@ -444,14 +453,14 @@ function PatientChatsContent() {
                 <button
                   type="button"
                   onClick={() => { setShowReportModal(false); setReportReason(""); setReportDescription(""); }}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 font-bold text-sm transition-colors"
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 font-bold text-sm transition-colors bg-transparent cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submittingReport || !reportReason.trim()}
-                  className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-bold text-sm transition-colors disabled:opacity-50 flex items-center justify-center"
+                  className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-bold text-sm transition-colors disabled:opacity-50 flex items-center justify-center border-0 cursor-pointer"
                 >
                   {submittingReport ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Submit Report"}
                 </button>
