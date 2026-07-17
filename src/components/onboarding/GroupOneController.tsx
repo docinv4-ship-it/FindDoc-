@@ -60,7 +60,7 @@ export default function GroupOneController({
   const [state, setState] = useState<GroupOneState>(defaultState);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // 1. First-Principles Draft Loading (Prefers Server Data, falls back to local storage)
+  // 1. First-Principles Draft Loading
   useEffect(() => {
     try {
       const savedDraft = localStorage.getItem(DRAFT_STORAGE_KEY);
@@ -122,7 +122,7 @@ export default function GroupOneController({
     });
   };
 
-  // 3. Strict schema validation before step transitions
+  // 3. Strict schema validation
   const validateAndProceed = () => {
     setErrors({});
     try {
@@ -157,7 +157,12 @@ export default function GroupOneController({
         <ContactStep data={state.contact} onChange={updateContact} errors={errors} />
       )}
       {currentStep === 3 && (
-        <LocationStep data={state.location} onChange={updateLocation} errors={errors} />
+        // 🟢 FIXED: Updated props from 'data' to 'locationData' and 'onChange' to 'setLocationData'
+        <LocationStep 
+          locationData={state.location} 
+          setLocationData={(updates) => updateLocation(updates)} 
+          errors={errors} 
+        />
       )}
 
       {/* Navigation Footer */}
