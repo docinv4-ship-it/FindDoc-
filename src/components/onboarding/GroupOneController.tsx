@@ -33,7 +33,6 @@ const defaultState: GroupOneState = {
     linkedin: "",
     whatsapp: "",
   },
-  // We force the initial location structure
   location: {
     country: "Pakistan",
     countryIso: "PK",
@@ -115,14 +114,16 @@ export default function GroupOneController({
     });
   };
 
-  const updateLocation = (updates: any) => {
+  // Wrapper function to match expected State Setter signature in LocationStep
+  const handleLocationUpdate = (updates: any) => {
+    const newUpdates = typeof updates === 'function' ? updates(state.location) : updates;
     setState((prev) => ({ 
       ...prev, 
-      location: { ...prev.location, ...updates } 
+      location: { ...prev.location, ...newUpdates } 
     }));
     if (errors) setErrors((prev) => {
       const newErr = { ...prev };
-      Object.keys(updates).forEach((k) => delete newErr[k]);
+      Object.keys(newUpdates).forEach((k) => delete newErr[k]);
       return newErr;
     });
   };
@@ -160,11 +161,10 @@ export default function GroupOneController({
         <ContactStep data={state.contact} onChange={updateContact} errors={errors} />
       )}
       {currentStep === 3 && (
-        // 🟢 FIXED: Forcing the type cast 'as any' to satisfy TypeScript build compiler
+        // FIXED: Removed 'errors' prop and updated handler
         <LocationStep 
           locationData={state.location as any} 
-          setLocationData={updateLocation} 
-          errors={errors} 
+          setLocationData={handleLocationUpdate as any} 
         />
       )}
 
