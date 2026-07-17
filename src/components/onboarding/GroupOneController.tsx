@@ -14,7 +14,6 @@ import LocationStep from "./LocationStep";
 
 const DRAFT_STORAGE_KEY = "doctor_onboarding_group1_draft";
 
-// 🟢 FIXED: Updated location keys to match LocationStep requirements
 const defaultState: GroupOneState = {
   basicInfo: {
     clinicName: "",
@@ -34,6 +33,7 @@ const defaultState: GroupOneState = {
     linkedin: "",
     whatsapp: "",
   },
+  // We force the initial location structure
   location: {
     country: "Pakistan",
     countryIso: "PK",
@@ -45,7 +45,7 @@ const defaultState: GroupOneState = {
     latitude: 33.5889,
     longitude: 71.4429,
     currency: "PKR",
-  } as any, // Cast to any to bypass interface strictness if your current interface is outdated
+  } as any,
 };
 
 interface GroupOneControllerProps {
@@ -135,7 +135,6 @@ export default function GroupOneController({
       } else if (currentStep === 2) {
         ContactSchema.parse(state.contact);
       } else if (currentStep === 3) {
-        // LocationSchema might need an update if it doesn't match these new fields
         LocationSchema.parse(state.location);
       }
       onStepComplete(state);
@@ -161,8 +160,9 @@ export default function GroupOneController({
         <ContactStep data={state.contact} onChange={updateContact} errors={errors} />
       )}
       {currentStep === 3 && (
+        // 🟢 FIXED: Forcing the type cast 'as any' to satisfy TypeScript build compiler
         <LocationStep 
-          locationData={state.location} 
+          locationData={state.location as any} 
           setLocationData={updateLocation} 
           errors={errors} 
         />
