@@ -29,12 +29,12 @@ export default function DoctorOnboardingPage() {
   const [doctorId, setDoctorId] = useState<string | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  
+
   const router = useRouter();
   const supabase = createClient();
 
   // -------------------------------------------------------------
-  // 🟢 1. PERFECTLY ALIGNED STATES (Matches Child Props EXACTLY)
+  // 🟢 1. PERFECTLY ALIGNED STATES (Explicitly Typed to Prevent 'never[]')
   // -------------------------------------------------------------
 
   const [basicInfo, setBasicInfo] = useState({
@@ -49,7 +49,14 @@ export default function DoctorOnboardingPage() {
     zone: "Kohat", streetAddress: "", zipCode: "", latitude: 33.5889, longitude: 71.4429, currency: "PKR",
   });
 
-  const [clinicDetails, setClinicDetails] = useState({
+  // 🟢 FIXED: Explicitly casting object type to ensure 'string[]' handles component updates perfectly
+  const [clinicDetails, setClinicDetails] = useState<{
+    about: string;
+    logoUrl: string;
+    coverImageUrl: string;
+    images: string[];
+    languages: string[];
+  }>({
     about: "", logoUrl: "", coverImageUrl: "", images: [], languages: [],
   });
 
@@ -71,8 +78,14 @@ export default function DoctorOnboardingPage() {
     ]
   });
 
-  const [publicProfile, setPublicProfile] = useState({ profileSlug: "", services: [] });
-  const [documents, setDocuments] = useState([]);
+  // 🟢 PREVENTATIVE FIX: Typed 'services' as string[] so it doesn't default to never[] later
+  const [publicProfile, setPublicProfile] = useState<{ profileSlug: string; services: string[] }>({ 
+    profileSlug: "", 
+    services: [] 
+  });
+  
+  // 🟢 PREVENTATIVE FIX: Typed 'documents' array as any[] to safely receive payloads
+  const [documents, setDocuments] = useState<any[]>([]);
 
   // -------------------------------------------------------------
   // 🟢 2. INITIAL HANDSHAKE & AUTH
@@ -113,9 +126,9 @@ export default function DoctorOnboardingPage() {
       if (!basicInfo.doctorName) newErrors.doctorName = "Doctor name is required";
       if (!basicInfo.specialization) newErrors.specialization = "Specialization is required";
     }
-    
+
     // Add logic for other steps here as you build them
-    
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       isValid = false;
@@ -172,7 +185,7 @@ export default function DoctorOnboardingPage() {
   return (
     <div className="min-h-screen bg-gray-50/50 py-10 px-4 sm:px-6">
       <div className="max-w-4xl mx-auto space-y-6">
-        
+
         {/* Header Module */}
         <div className="flex items-center justify-between bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
           <div>
