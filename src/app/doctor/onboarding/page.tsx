@@ -19,9 +19,10 @@ import ReviewStep from "@/components/onboarding/ReviewStep";
 // Strict Feature Types
 import type {
   BasicInfo, Contact, ClinicDetails, Consultation,
-  DayAvailability, VerificationDocument
+  VerificationDocument
 } from "./types";
 import type { LocationState } from "@/components/onboarding/LocationStep";
+import type { AvailabilityData } from "@/lib/validation/onboarding-group3";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB limit
 const stepLabels = [
@@ -42,6 +43,7 @@ export default function DoctorOnboardingPage() {
   const [saving, setSaving] = useState<boolean>(false);
   const [doctorId, setDoctorId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const router = useRouter();
   const supabase = createClient();
 
@@ -96,14 +98,17 @@ export default function DoctorOnboardingPage() {
     bookingMode: "auto",
   });
 
-  const [availability, setAvailability] = useState<Record<number, DayAvailability>>({
-    0: { enabled: true, start: "09:00", end: "17:00" },
-    1: { enabled: true, start: "09:00", end: "17:00" },
-    2: { enabled: true, start: "09:00", end: "17:00" },
-    3: { enabled: true, start: "09:00", end: "17:00" },
-    4: { enabled: true, start: "09:00", end: "17:00" },
-    5: { enabled: false, start: "09:00", end: "13:00" },
-    6: { enabled: false, start: "09:00", end: "13:00" },
+  // Synced with onboarding-group3 Structure
+  const [availability, setAvailability] = useState<AvailabilityData>({
+    schedule: [
+      { day: "Monday", isAvailable: true, slots: [{ id: "init-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Tuesday", isAvailable: true, slots: [{ id: "init-2", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Wednesday", isAvailable: true, slots: [{ id: "init-3", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Thursday", isAvailable: true, slots: [{ id: "init-4", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Friday", isAvailable: true, slots: [{ id: "init-5", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Saturday", isAvailable: false, slots: [] },
+      { day: "Sunday", isAvailable: false, slots: [] },
+    ]
   });
 
   const [documents, setDocuments] = useState<VerificationDocument[]>([]);
@@ -135,7 +140,7 @@ export default function DoctorOnboardingPage() {
           experienceYears: doctorData.experience_years?.toString() || "",
           registrationNumber: doctorData.registration_number || "",
         }));
-        
+
         setContact(prev => ({
           ...prev,
           mobile: doctorData.phone || "",
@@ -181,6 +186,7 @@ export default function DoctorOnboardingPage() {
   // --- STRICT VALIDATION BARRIER ---
   const validateStep = (s: number): boolean => {
     setError(null);
+    setErrors({});
     switch (s) {
       case 1:
         if (!basicInfo.clinicName.trim() || !basicInfo.doctorName.trim() || !basicInfo.specialization) {
@@ -235,7 +241,7 @@ export default function DoctorOnboardingPage() {
 
       if (doctorUpdateErr) throw doctorUpdateErr;
 
-      // 2. High Performance Insertion into Clinics Table (Fully Mapped to Location State Matrix)
+      // 2. High Performance Insertion into Clinics Table
       const { data: clinicData, error: clinicInsertErr } = await supabase
         .from("clinics")
         .insert({
@@ -246,7 +252,7 @@ export default function DoctorOnboardingPage() {
           cover_image_url: clinicDetails.coverImageUrl,
           gallery_images: clinicDetails.galleryImages,
           languages_spoken: clinicDetails.languagesSpoken,
-          
+
           // NPM Powered Global Matrix fields
           country: location.country,
           province: location.province,
@@ -256,14 +262,14 @@ export default function DoctorOnboardingPage() {
           latitude: location.latitude,
           longitude: location.longitude,
           currency_code: location.currency,
-          
+
           // Booking Options Config Matrix
           consultation_fee: parseFloat(consultation.fee) || 0,
           consultation_type: consultation.consultationType,
           slot_duration: parseInt(consultation.slotDuration, 10) || 30,
           buffer_time: parseInt(consultation.bufferTime, 10) || 0,
           booking_mode: consultation.bookingMode,
-          
+
           is_active: true,
         })
         .select("id")
@@ -271,26 +277,32 @@ export default function DoctorOnboardingPage() {
 
       if (clinicInsertErr) throw clinicInsertErr;
 
-      // 3. Batch commit Availability Timings Engine 
-      const availabilityPayload = Object.entries(availability)
-        .filter(([_, data]) => data.enabled)
-        .map(([dayIndex, data]) => ({
-          clinic_id: clinicData.id,
-          doctor_id: doctorId,
-          day_of_week: parseInt(dayIndex, 10),
-          start_time: data.start,
-          end_time: data.end,
-        }));
+      // 3. Flattening and Batch committing Modern Multi-Slot Availability
+      const dayMap: Record<string, number> = {
+        "Sunday": 0, "Monday": 1, "Tuesday": 2, "Wednesday": 3, "Thursday": 4, "Friday": 5, "Saturday": 6
+      };
+
+      const availabilityPayload = availability.schedule
+        .filter((dayObj) => dayObj.isAvailable)
+        .flatMap((dayObj) => 
+          dayObj.slots.map((slot) => ({
+            clinic_id: clinicData.id,
+            doctor_id: doctorId,
+            day_of_week: dayMap[dayObj.day] ?? 1,
+            start_time: slot.startTime,
+            end_time: slot.endTime,
+          }))
+        );
 
       if (availabilityPayload.length > 0) {
         const { error: availabilityErr } = await supabase
           .from("clinic_availability")
           .insert(availabilityPayload);
-          
+
         if (availabilityErr) throw availabilityErr;
       }
 
-      // 4. Update core verification flag inside profiles to activate Dashboard access
+      // 4. Update core verification flag inside profiles
       const { error: finalOnboardErr } = await supabase
         .from("doctors")
         .update({ is_onboarded: true })
@@ -363,15 +375,36 @@ export default function DoctorOnboardingPage() {
 
         {/* --- DYNAMIC RUNTIME INJECTIONS --- */}
         <div className="transition-all duration-200">
-          {step === 1 && <BasicInfoStep basicInfo={basicInfo} setBasicInfo={setBasicInfo} />}
-          {step === 2 && <ContactStep contact={contact} setContact={setContact} />}
+          {step === 1 && (
+            <BasicInfoStep 
+              data={basicInfo} 
+              onChange={(updates) => setBasicInfo(prev => ({ ...prev, ...updates }))} 
+              errors={errors} 
+            />
+          )}
           
+          {step === 2 && (
+            <ContactStep 
+              data={contact} 
+              onChange={(updates) => setContact(prev => ({ ...prev, ...updates }))} 
+              errors={errors} 
+            />
+          )}
+
           {/* Step 3: Upgraded Location Control Matrix */}
           {step === 3 && <LocationStep locationData={location} setLocationData={setLocation} />}
-          
+
           {step === 4 && <ClinicDetailsStep clinicDetails={clinicDetails} setClinicDetails={setClinicDetails} uploadFile={uploadFile} />}
           {step === 5 && <ConsultationStep consultation={consultation} setConsultation={setConsultation} />}
-          {step === 6 && <AvailabilityStep availability={availability} setAvailability={setAvailability} />}
+          
+          {step === 6 && (
+            <AvailabilityStep 
+              data={availability} 
+              onChange={(updates) => setAvailability(prev => ({ ...prev, ...updates }))} 
+              errors={errors} 
+            />
+          )}
+          
           {step === 7 && <PublicProfileStep clinicName={basicInfo.clinicName} />}
           {step === 8 && <DocumentsStep documents={documents} setDocuments={setDocuments} doctorId={doctorId} />}
           {step === 9 && <ReviewStep basicInfo={basicInfo} contact={contact} location={location} />}
