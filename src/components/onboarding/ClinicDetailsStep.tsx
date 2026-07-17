@@ -20,24 +20,41 @@ const AVAILABLE_LANGUAGES = [
 ];
 
 export default function ClinicDetailsStep({ data, onChange, errors }: ClinicDetailsStepProps) {
-  
-  const handleImageConversion = (e: ChangeEvent<HTMLInputElement>) => {
+
+  // 🟢 FIXED: Handled multiple async files flawlessly using Promise.all
+  const handleImageConversion = async (e: ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     const filesArray = Array.from(e.target.files);
 
-    filesArray.forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === "string") {
-          onChange({ images: [...(data.images || []), reader.result] });
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    try {
+      const base64Results = await Promise.all(
+        filesArray.map((file) => {
+          return new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              if (typeof reader.result === "string") {
+                resolve(reader.result);
+              } else {
+                reject(new Error("Conversion failed"));
+              }
+            };
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+          });
+        })
+      );
+
+      // Updates state once with all newly converted images appended safely
+      onChange({ images: [...(data.images || []), ...base64Results] });
+    } catch (error) {
+      console.error("Media Engine Upload Error:", error);
+    }
   };
 
+  // 🟢 FIXED: Added safety fallback to prevent errors if data.images is undefined
   const removeImageIndex = (indexToRemove: number) => {
-    onChange({ images: data.images.filter((_, idx) => idx !== indexToRemove) });
+    const currentImages = data.images || [];
+    onChange({ images: currentImages.filter((_, idx) => idx !== indexToRemove) });
   };
 
   const toggleLanguageItem = (langLabel: string) => {
@@ -96,7 +113,7 @@ export default function ClinicDetailsStep({ data, onChange, errors }: ClinicDeta
             <Languages className="w-4 h-4 text-gray-500" />
             <label className="text-sm font-semibold text-gray-700">Supported Consultation Dialects</label>
           </div>
-          
+
           <div className="flex flex-wrap gap-2">
             {AVAILABLE_LANGUAGES.map((language) => {
               const isSelected = data.languages?.includes(language.label);
