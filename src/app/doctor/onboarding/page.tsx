@@ -391,11 +391,27 @@ export default function DoctorOnboardingPage() {
             />
           )}
 
-          {/* Step 3: Upgraded Location Control Matrix */}
+          {/* Step 3: Upgraded Location Control Matrix (Verified Working) */}
           {step === 3 && <LocationStep locationData={location} setLocationData={setLocation} />}
 
-          {step === 4 && <ClinicDetailsStep clinicDetails={clinicDetails} setClinicDetails={setClinicDetails} uploadFile={uploadFile} />}
-          {step === 5 && <ConsultationStep consultation={consultation} setConsultation={setConsultation} />}
+          {/* Step 4: Clinic Details (Fixed to match data/onChange pattern) */}
+          {step === 4 && (
+            <ClinicDetailsStep 
+              data={clinicDetails} 
+              onChange={(updates) => setClinicDetails(prev => ({ ...prev, ...updates }))} 
+              uploadFile={uploadFile} 
+              errors={errors}
+            />
+          )}
+
+          {/* Step 5: Consultation (Fixed to match data/onChange pattern) */}
+          {step === 5 && (
+            <ConsultationStep 
+              data={consultation} 
+              onChange={(updates) => setConsultation(prev => ({ ...prev, ...updates }))} 
+              errors={errors}
+            />
+          )}
           
           {step === 6 && (
             <AvailabilityStep 
