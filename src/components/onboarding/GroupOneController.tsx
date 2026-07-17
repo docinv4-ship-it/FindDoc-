@@ -1,0 +1,186 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { ZodError } from "zod";
+import {
+  BasicInfoSchema,
+  ContactSchema,
+  LocationSchema,
+  GroupOneState,
+} from "@/lib/validation/onboarding-group1";
+import BasicInfoStep from "./BasicInfoStep";
+import ContactStep from "./ContactStep";
+import LocationStep from "./LocationStep";
+
+const DRAFT_STORAGE_KEY = "doctor_onboarding_group1_draft";
+
+const defaultState: GroupOneState = {
+  basicInfo: {
+    clinicName: "",
+    doctorName: "",
+    specialization: "",
+    customSpecialization: "",
+    qualification: "",
+    experienceYears: "",
+    registrationNumber: "",
+  },
+  contact: {
+    mobile: "",
+    email: "",
+    website: "",
+    facebook: "",
+    instagram: "",
+    linkedin: "",
+    whatsapp: "",
+  },
+  location: {
+    country: "United States",
+    state: "",
+    city: "",
+    address: "",
+    postalCode: "",
+    latitude: "",
+    longitude: "",
+  },
+};
+
+interface GroupOneControllerProps {
+  currentStep: number;
+  onStepComplete: (groupData: GroupOneState) => void;
+  onStepBack: () => void;
+  initialServerData?: Partial<GroupOneState>;
+}
+
+export default function GroupOneController({
+  currentStep,
+  onStepComplete,
+  onStepBack,
+  initialServerData,
+}: GroupOneControllerProps) {
+  const [state, setState] = useState<GroupOneState>(defaultState);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // 1. First-Principles Draft Loading (Prefers Server Data, falls back to local storage)
+  useEffect(() => {
+    try {
+      const savedDraft = localStorage.getItem(DRAFT_STORAGE_KEY);
+      const parsedDraft = savedDraft ? JSON.parse(savedDraft) : null;
+
+      setState({
+        basicInfo: {
+          ...defaultState.basicInfo,
+          ...(initialServerData?.basicInfo || {}),
+          ...(parsedDraft?.basicInfo || {}),
+        },
+        contact: {
+          ...defaultState.contact,
+          ...(initialServerData?.contact || {}),
+          ...(parsedDraft?.contact || {}),
+        },
+        location: {
+          ...defaultState.location,
+          ...(initialServerData?.location || {}),
+          ...(parsedDraft?.location || {}),
+        },
+      });
+    } catch (err) {
+      console.error("Failed to restore onboarding draft state:", err);
+    }
+  }, [initialServerData]);
+
+  // 2. Draft Auto-Saving logic
+  useEffect(() => {
+    if (state !== defaultState) {
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(state));
+    }
+  }, [state]);
+
+  const updateBasicInfo = (updates: Partial<GroupOneState["basicInfo"]>) => {
+    setState((prev) => ({ ...prev, basicInfo: { ...prev.basicInfo, ...updates } }));
+    if (errors) setErrors((prev) => {
+      const newErr = { ...prev };
+      Object.keys(updates).forEach((k) => delete newErr[k]);
+      return newErr;
+    });
+  };
+
+  const updateContact = (updates: Partial<GroupOneState["contact"]>) => {
+    setState((prev) => ({ ...prev, contact: { ...prev.contact, ...updates } }));
+    if (errors) setErrors((prev) => {
+      const newErr = { ...prev };
+      Object.keys(updates).forEach((k) => delete newErr[k]);
+      return newErr;
+    });
+  };
+
+  const updateLocation = (updates: Partial<GroupOneState["location"]>) => {
+    setState((prev) => ({ ...prev, location: { ...prev.location, ...updates } }));
+    if (errors) setErrors((prev) => {
+      const newErr = { ...prev };
+      Object.keys(updates).forEach((k) => delete newErr[k]);
+      return newErr;
+    });
+  };
+
+  // 3. Strict schema validation before step transitions
+  const validateAndProceed = () => {
+    setErrors({});
+    try {
+      if (currentStep === 1) {
+        BasicInfoSchema.parse(state.basicInfo);
+      } else if (currentStep === 2) {
+        ContactSchema.parse(state.contact);
+      } else if (currentStep === 3) {
+        LocationSchema.parse(state.location);
+      }
+      onStepComplete(state);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const fieldErrors: Record<string, string> = {};
+        err.errors.forEach((zodErr) => {
+          if (zodErr.path.length > 0) {
+            fieldErrors[zodErr.path[0].toString()] = zodErr.message;
+          }
+        });
+        setErrors(fieldErrors);
+      }
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+      {/* Component Step Router */}
+      {currentStep === 1 && (
+        <BasicInfoStep data={state.basicInfo} onChange={updateBasicInfo} errors={errors} />
+      )}
+      {currentStep === 2 && (
+        <ContactStep data={state.contact} onChange={updateContact} errors={errors} />
+      )}
+      {currentStep === 3 && (
+        <LocationStep data={state.location} onChange={updateLocation} errors={errors} />
+      )}
+
+      {/* Navigation Footer */}
+      <div className="flex items-center justify-between mt-8 pt-5 border-t border-gray-100">
+        {currentStep > 1 ? (
+          <button
+            type="button"
+            onClick={onStepBack}
+            className="px-5 py-2.5 text-sm font-semibold text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            Back
+          </button>
+        ) : (
+          <div />
+        )}
+        <button
+          type="button"
+          onClick={validateAndProceed}
+          className="px-6 py-2.5 bg-primary-500 hover:bg-primary-600 active:scale-98 text-white text-sm font-semibold rounded-lg transition-all shadow-sm"
+        >
+          {currentStep === 3 ? "Save & Proceed to Group 2" : "Continue"}
+        </button>
+      </div>
+    </div>
+  );
+}
