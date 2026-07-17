@@ -7,13 +7,13 @@ import { Loader2, Check, ChevronLeft, ChevronRight, MapPin } from "lucide-react"
 
 // --- IMPORTING ALL STEPS ---
 import BasicInfoStep from "@/components/onboarding/BasicInfoStep";
-// import ContactStep from "@/components/onboarding/ContactStep"; // Create this placeholder if missing
+import ContactStep from "@/components/onboarding/ContactStep"; // Create this placeholder if missing
 import LocationStep, { LocationState } from "@/components/onboarding/LocationStep";
 import ClinicDetailsStep from "@/components/onboarding/ClinicDetailsStep";
 import ConsultationStep from "@/components/onboarding/ConsultationStep";
 import AvailabilityStep from "@/components/onboarding/AvailabilityStep";
-// import PublicProfileStep from "@/components/onboarding/PublicProfileStep"; // Placeholder
-// import DocumentsStep from "@/components/onboarding/DocumentsStep"; // Placeholder
+import PublicProfileStep from "@/components/onboarding/PublicProfileStep"; // Placeholder
+import DocumentsStep from "@/components/onboarding/DocumentsStep"; // Placeholder
 import ReviewStep from "@/components/onboarding/ReviewStep";
 
 // Setup Array for Progress Mapping
