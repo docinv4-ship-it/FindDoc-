@@ -18,11 +18,20 @@ import ReviewStep from "@/components/onboarding/ReviewStep";
 
 // Strict Feature Types
 import type {
-  BasicInfo, Contact, ClinicDetails, Consultation,
+  BasicInfo, Contact, Consultation,
   VerificationDocument
 } from "./types";
 import type { LocationState } from "@/components/onboarding/LocationStep";
 import type { AvailabilityData } from "@/lib/validation/onboarding-group3";
+
+// UI Component Expected Types for Step 4
+interface ClinicDetailsUI {
+  about: string;
+  logoUrl: string;
+  coverImageUrl: string;
+  images: string[];
+  languages: string[];
+}
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB limit
 const stepLabels = [
@@ -68,7 +77,7 @@ export default function DoctorOnboardingPage() {
     whatsapp: "",
   });
 
-  // Upgraded Location Matrix State (NPM Package Compatible)
+  // Upgraded Location Matrix State
   const [location, setLocation] = useState<LocationState>({
     country: "Pakistan",
     countryIso: "PK",
@@ -82,12 +91,13 @@ export default function DoctorOnboardingPage() {
     currency: "PKR",
   });
 
-  const [clinicDetails, setClinicDetails] = useState<ClinicDetails>({
+  // Fixed Name Mismatch to perfectly satisfy UI Types
+  const [clinicDetails, setClinicDetails] = useState<ClinicDetailsUI>({
     about: "",
     logoUrl: "",
     coverImageUrl: "",
-    galleryImages: [],
-    languagesSpoken: [],
+    images: [],
+    languages: [],
   });
 
   const [consultation, setConsultation] = useState<Consultation>({
@@ -241,7 +251,7 @@ export default function DoctorOnboardingPage() {
 
       if (doctorUpdateErr) throw doctorUpdateErr;
 
-      // 2. High Performance Insertion into Clinics Table
+      // 2. High Performance Insertion into Clinics Table (Explicit Mapping to Database Fields)
       const { data: clinicData, error: clinicInsertErr } = await supabase
         .from("clinics")
         .insert({
@@ -250,8 +260,10 @@ export default function DoctorOnboardingPage() {
           about: clinicDetails.about,
           logo_url: clinicDetails.logoUrl,
           cover_image_url: clinicDetails.coverImageUrl,
-          gallery_images: clinicDetails.galleryImages,
-          languages_spoken: clinicDetails.languagesSpoken,
+          
+          // MAPPED: Mapping UI state array names to DB table column names
+          gallery_images: clinicDetails.images, 
+          languages_spoken: clinicDetails.languages, 
 
           // NPM Powered Global Matrix fields
           country: location.country,
@@ -391,10 +403,10 @@ export default function DoctorOnboardingPage() {
             />
           )}
 
-          {/* Step 3: Upgraded Location Control Matrix (Verified Working) */}
+          {/* Step 3: Upgraded Location Control Matrix */}
           {step === 3 && <LocationStep locationData={location} setLocationData={setLocation} />}
 
-          {/* Step 4: Clinic Details (Fixed to match data/onChange pattern) */}
+          {/* Step 4: Clinic Details (Successfully Type Checked with Local UI Interface) */}
           {step === 4 && (
             <ClinicDetailsStep 
               data={clinicDetails} 
@@ -404,7 +416,7 @@ export default function DoctorOnboardingPage() {
             />
           )}
 
-          {/* Step 5: Consultation (Fixed to match data/onChange pattern) */}
+          {/* Step 5: Consultation */}
           {step === 5 && (
             <ConsultationStep 
               data={consultation} 
