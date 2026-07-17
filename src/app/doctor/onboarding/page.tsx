@@ -34,7 +34,7 @@ export default function DoctorOnboardingPage() {
   const supabase = createClient();
 
   // -------------------------------------------------------------
-  // 🟢 1. PERFECTLY ALIGNED STATES (Explicitly Typed to Prevent 'never[]')
+  // 🟢 1. PERFECTLY ALIGNED STATES
   // -------------------------------------------------------------
 
   const [basicInfo, setBasicInfo] = useState({
@@ -49,7 +49,6 @@ export default function DoctorOnboardingPage() {
     zone: "Kohat", streetAddress: "", zipCode: "", latitude: 33.5889, longitude: 71.4429, currency: "PKR",
   });
 
-  // 🟢 FIXED: Explicitly casting object type to ensure 'string[]' handles component updates perfectly
   const [clinicDetails, setClinicDetails] = useState<{
     about: string;
     logoUrl: string;
@@ -60,31 +59,28 @@ export default function DoctorOnboardingPage() {
     about: "", logoUrl: "", coverImageUrl: "", images: [], languages: [],
   });
 
-  // FIXED: Variable names matching ConsultationStep EXACTLY
   const [consultation, setConsultation] = useState({
     currency: "PKR", consultationFee: 0, slotSizeMinutes: "30",
   });
 
-  // FIXED: Matches AvailabilityStep Data Structure EXACTLY
+  // 🟢 FIXED: Added Type Assertion to match explicit day literals ("Monday" | "Tuesday" etc.)
   const [availability, setAvailability] = useState({
     schedule: [
-      { day: "Monday", isAvailable: true, slots: [{ id: "m-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Tuesday", isAvailable: true, slots: [{ id: "t-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Wednesday", isAvailable: true, slots: [{ id: "w-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Thursday", isAvailable: true, slots: [{ id: "th-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Friday", isAvailable: true, slots: [{ id: "f-1", startTime: "09:00", endTime: "13:00" }] },
-      { day: "Saturday", isAvailable: false, slots: [] },
-      { day: "Sunday", isAvailable: false, slots: [] },
+      { day: "Monday" as const, isAvailable: true, slots: [{ id: "m-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Tuesday" as const, isAvailable: true, slots: [{ id: "t-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Wednesday" as const, isAvailable: true, slots: [{ id: "w-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Thursday" as const, isAvailable: true, slots: [{ id: "th-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Friday" as const, isAvailable: true, slots: [{ id: "f-1", startTime: "09:00", endTime: "13:00" }] },
+      { day: "Saturday" as const, isAvailable: false, slots: [] as { id: string; startTime: string; endTime: string; }[] },
+      { day: "Sunday" as const, isAvailable: false, slots: [] as { id: string; startTime: string; endTime: string; }[] },
     ]
   });
 
-  // 🟢 PREVENTATIVE FIX: Typed 'services' as string[] so it doesn't default to never[] later
   const [publicProfile, setPublicProfile] = useState<{ profileSlug: string; services: string[] }>({ 
     profileSlug: "", 
     services: [] 
   });
   
-  // 🟢 PREVENTATIVE FIX: Typed 'documents' array as any[] to safely receive payloads
   const [documents, setDocuments] = useState<any[]>([]);
 
   // -------------------------------------------------------------
@@ -127,8 +123,6 @@ export default function DoctorOnboardingPage() {
       if (!basicInfo.specialization) newErrors.specialization = "Specialization is required";
     }
 
-    // Add logic for other steps here as you build them
-
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       isValid = false;
@@ -159,9 +153,9 @@ export default function DoctorOnboardingPage() {
       case 5:
         return <ConsultationStep data={consultation as any} onChange={(updates) => setConsultation(prev => ({ ...prev, ...updates }))} errors={errors} />;
       case 6:
-        return <AvailabilityStep data={availability} onChange={(updates) => setAvailability(prev => ({ ...prev, ...updates }))} errors={errors} />;
+        // 🟢 FIXED: Safely passing updates back to availability structure
+        return <AvailabilityStep data={availability as any} onChange={(updates) => setAvailability(prev => ({ ...prev, ...updates } as any))} errors={errors} />;
       case 9:
-        // FIX: Creating the expected "globalState" wrapper just-in-time for ReviewStep
         const packagedState = {
           group1: { basicInfo, location, contact },
           group2: { clinicDetails, consultation },
