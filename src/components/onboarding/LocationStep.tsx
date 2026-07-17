@@ -1,169 +1,220 @@
 "use client";
 
-import { useId } from "react";
-import { MapPin } from "lucide-react";
-import { LocationData } from "@/lib/validation/onboarding-group1";
+import { useState, useMemo, useEffect } from "react";
+import dynamic from "next/dynamic";
+import { getGlobalCountries, getGlobalStates, getGlobalCities } from "@/lib/locations";
+import { MapPin, Coins, Loader2, Globe, Building2, Map } from "lucide-react";
 
-interface LocationStepProps {
-  data: LocationData;
-  onChange: (updates: Partial<LocationData>) => void;
-  errors: Record<string, string>;
+const ClinicMap = dynamic(() => import("@/components/ClinicMap"), { ssr: false });
+
+export interface LocationState {
+  country: string;
+  countryIso: string;
+  province: string;
+  provinceIso: string;
+  zone: string;
+  streetAddress: string;
+  zipCode: string;
+  latitude: number;
+  longitude: number;
+  currency: string;
 }
 
-export default function LocationStep({ data, onChange, errors }: LocationStepProps) {
-  const countryId = useId();
-  const stateId = useId();
-  const cityId = useId();
-  const zipId = useId();
-  const addrId = useId();
-  const latId = useId();
-  const lonId = useId();
+interface LocationStepProps {
+  locationData: LocationState;
+  setLocationData: React.Dispatch<React.SetStateAction<LocationState>>;
+}
+
+export default function LocationStep({ locationData, setLocationData }: LocationStepProps) {
+  const [isGeocoding, setIsGeocoding] = useState(false);
+
+  // Load all 250+ countries instantly
+  const countries = useMemo(() => getGlobalCountries(), []);
+
+  // Compute states dynamically based on selected Country ISO
+  const states = useMemo(() => {
+    return getGlobalStates(locationData.countryIso);
+  }, [locationData.countryIso]);
+
+  // Compute cities dynamically based on Country ISO and State ISO
+  const cities = useMemo(() => {
+    return getGlobalCities(locationData.countryIso, locationData.provinceIso);
+  }, [locationData.countryIso, locationData.provinceIso]);
+
+  const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedIso = e.target.value;
+    const countryObj = countries.find((c) => c.isoCode === selectedIso);
+    
+    if (countryObj) {
+      setLocationData({
+        ...locationData,
+        country: countryObj.name,
+        countryIso: countryObj.isoCode,
+        currency: countryObj.currency,
+        latitude: parseFloat(countryObj.latitude) || 0,
+        longitude: parseFloat(countryObj.longitude) || 0,
+        province: "",
+        provinceIso: "",
+        zone: "",
+      });
+    }
+  };
+
+  const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedStateIso = e.target.value;
+    const stateObj = states.find((s) => s.isoCode === selectedStateIso);
+    
+    if (stateObj) {
+      setLocationData({
+        ...locationData,
+        province: stateObj.name,
+        provinceIso: stateObj.isoCode,
+        zone: "",
+      });
+    }
+  };
+
+  const triggerAutomaticGeocode = async () => {
+    if (!locationData.streetAddress || !locationData.zone || !locationData.country) return;
+    
+    setIsGeocoding(true);
+    const fullQueryString = `${locationData.streetAddress}, ${locationData.zone}, ${locationData.province}, ${locationData.country}`;
+
+    try {
+      const response = await fetch(`/api/geocode?address=${encodeURIComponent(fullQueryString)}`);
+      const data = await response.json();
+      if (data.lat && data.lng) {
+        setLocationData(prev => ({ ...prev, latitude: data.lat, longitude: data.lng }));
+      }
+    } catch (err) {
+      console.error("Auto Location Resolving failed", err);
+    } finally {
+      setIsGeocoding(false);
+    }
+  };
 
   return (
-    <div className="space-y-6">
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 md:p-8 space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-gray-900 mb-1">Clinic Location</h2>
-        <p className="text-sm text-gray-500">Provide the geographic address coordinates for patients to navigate.</p>
+        <h2 className="text-xl font-bold text-gray-900 mb-1 flex items-center gap-2">
+          <Globe className="w-6 h-6 text-primary-600" /> Clinic Location & Currency
+        </h2>
+        <p className="text-gray-500 text-sm">Select your global location matrix to configure billing and radar systems.</p>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Country</label>
+          <div className="relative">
+            <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <select 
+              value={locationData.countryIso} 
+              onChange={handleCountryChange}
+              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50"
+            >
+              <option value="">Select a Country...</option>
+              {countries.map((c) => (
+                <option key={c.isoCode} value={c.isoCode}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Billing Currency</label>
+          <div className="relative">
+            <Coins className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input 
+              readOnly
+              type="text"
+              value={`${locationData.currency} (Auto-Locked)`} 
+              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-semibold bg-gray-100 text-gray-600 cursor-not-allowed"
+            />
+          </div>
+        </div>
       </div>
 
-      <div className="space-y-4">
-        {/* Country & State */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor={countryId} className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Country
-            </label>
-            <input
-              id={countryId}
-              type="text"
-              value={data.country}
-              onChange={(e) => onChange({ country: e.target.value })}
-              className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                errors.country ? "border-red-500 focus:ring-red-200" : "border-gray-200 focus:ring-primary-500"
-              }`}
-              placeholder="United States"
-            />
-            {errors.country && <p className="text-xs text-red-500 mt-1 font-medium">{errors.country}</p>}
-          </div>
-
-          <div>
-            <label htmlFor={stateId} className="block text-sm font-semibold text-gray-700 mb-1.5">
-              State / Province
-            </label>
-            <input
-              id={stateId}
-              type="text"
-              value={data.state}
-              onChange={(e) => onChange({ state: e.target.value })}
-              className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                errors.state ? "border-red-500 focus:ring-red-200" : "border-gray-200 focus:ring-primary-500"
-              }`}
-              placeholder="California"
-            />
-            {errors.state && <p className="text-xs text-red-500 mt-1 font-medium">{errors.state}</p>}
-          </div>
-        </div>
-
-        {/* City & Postal Code */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor={cityId} className="block text-sm font-semibold text-gray-700 mb-1.5">
-              City
-            </label>
-            <input
-              id={cityId}
-              type="text"
-              value={data.city}
-              onChange={(e) => onChange({ city: e.target.value })}
-              className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                errors.city ? "border-red-500 focus:ring-red-200" : "border-gray-200 focus:ring-primary-500"
-              }`}
-              placeholder="Los Angeles"
-            />
-            {errors.city && <p className="text-xs text-red-500 mt-1 font-medium">{errors.city}</p>}
-          </div>
-
-          <div>
-            <label htmlFor={zipId} className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Postal / ZIP Code
-            </label>
-            <input
-              id={zipId}
-              type="text"
-              value={data.postalCode}
-              onChange={(e) => onChange({ postalCode: e.target.value })}
-              className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                errors.postalCode ? "border-red-500 focus:ring-red-200" : "border-gray-200 focus:ring-primary-500"
-              }`}
-              placeholder="90001"
-            />
-            {errors.postalCode && <p className="text-xs text-red-500 mt-1 font-medium">{errors.postalCode}</p>}
-          </div>
-        </div>
-
-        {/* Street Address */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
-          <label htmlFor={addrId} className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Street Address
-          </label>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">State / Province</label>
           <div className="relative">
-            <MapPin className="absolute left-3 top-3.5 w-5 h-5 text-gray-400 pointer-events-none" />
-            <textarea
-              id={addrId}
-              value={data.address}
-              onChange={(e) => onChange({ address: e.target.value })}
-              rows={2}
-              className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                errors.address ? "border-red-500 focus:ring-red-200" : "border-gray-200 focus:ring-primary-500"
-              }`}
-              placeholder="123 Main Street, Suite 100"
-            />
-          </div>
-          {errors.address && <p className="text-xs text-red-500 mt-1 font-medium">{errors.address}</p>}
-        </div>
-
-        {/* GPS Coordinates */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor={latId} className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Latitude <span className="text-xs font-normal text-gray-400">(Optional)</span>
-            </label>
-            <input
-              id={latId}
-              type="text"
-              value={data.latitude}
-              onChange={(e) => onChange({ latitude: e.target.value })}
-              className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                errors.latitude ? "border-red-500 focus:ring-red-200" : "border-gray-200 focus:ring-primary-500"
-              }`}
-              placeholder="34.0522"
-            />
-            {errors.latitude && <p className="text-xs text-red-500 mt-1 font-medium">{errors.latitude}</p>}
-          </div>
-
-          <div>
-            <label htmlFor={lonId} className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Longitude <span className="text-xs font-normal text-gray-400">(Optional)</span>
-            </label>
-            <input
-              id={lonId}
-              type="text"
-              value={data.longitude}
-              onChange={(e) => onChange({ longitude: e.target.value })}
-              className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                errors.longitude ? "border-red-500 focus:ring-red-200" : "border-gray-200 focus:ring-primary-500"
-              }`}
-              placeholder="-118.2437"
-            />
-            {errors.longitude && <p className="text-xs text-red-500 mt-1 font-medium">{errors.longitude}</p>}
+            <Map className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <select 
+              value={locationData.provinceIso} 
+              onChange={handleStateChange}
+              disabled={!locationData.countryIso || states.length === 0}
+              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50 disabled:bg-gray-100"
+            >
+              <option value="">Select State...</option>
+              {states.map((s) => (
+                <option key={s.isoCode} value={s.isoCode}>{s.name}</option>
+              ))}
+            </select>
           </div>
         </div>
 
-        <div className="p-3 bg-gray-50 rounded-lg border border-gray-150">
-          <p className="text-xs text-gray-500 leading-relaxed">
-            💡 <strong>Pro Tip:</strong> Google Maps par direct location search karein, location pin par right-click karein, aur coordinates copy karke yahan paste karein. Is se dynamic route searches performant ho jati hain.
-          </p>
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">City / Zone</label>
+          <div className="relative">
+            <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <select 
+              value={locationData.zone} 
+              onChange={(e) => setLocationData({ ...locationData, zone: e.target.value })}
+              disabled={!locationData.provinceIso || cities.length === 0}
+              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50 disabled:bg-gray-100"
+            >
+              <option value="">Select City...</option>
+              {cities.map((c) => (
+                <option key={c.name} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="md:col-span-2">
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Street Address</label>
+          <input 
+            type="text" 
+            placeholder="e.g. 123 Main Street, Clinic Building" 
+            value={locationData.streetAddress} 
+            onChange={(e) => setLocationData({ ...locationData, streetAddress: e.target.value })}
+            onBlur={triggerAutomaticGeocode} 
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Zip Code</label>
+          <input 
+            type="text" 
+            placeholder="e.g. 26000" 
+            value={locationData.zipCode} 
+            onChange={(e) => setLocationData({ ...locationData, zipCode: e.target.value })}
+            onBlur={triggerAutomaticGeocode}
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-3 pt-4 border-t border-gray-100">
+        <div className="flex justify-between items-center">
+          <label className="text-sm font-bold text-gray-900 flex items-center gap-1.5 uppercase tracking-wide">
+            <MapPin className="w-5 h-5 text-primary-600" /> Live Target Radar
+          </label>
+          {isGeocoding && (
+            <span className="text-[12px] text-primary-600 flex items-center gap-1.5 font-bold bg-primary-50 px-3 py-1 rounded-full">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Resolving Coordinates...
+            </span>
+          )}
+        </div>
+        <ClinicMap 
+          lat={locationData.latitude} 
+          lng={locationData.longitude} 
+          onPositionChange={(newLat, newLng) => {
+            setLocationData(prev => ({ ...prev, latitude: newLat, longitude: newLng }));
+          }} 
+        />
       </div>
     </div>
   );
