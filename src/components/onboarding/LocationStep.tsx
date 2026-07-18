@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { getGlobalCountries, getGlobalStates, getGlobalCities } from "@/lib/locations";
 import { MapPin, Coins, Loader2, Globe, Building2, Map, Search } from "lucide-react";
@@ -44,62 +44,44 @@ export default function LocationStep({ locationData, setLocationData }: Location
   }, [locationData.countryIso, locationData.provinceIso]);
 
   // -----------------------------------------------------------------
-  // 🎯 FUTURE-PROOF ENGINE: 100% AUTOMATIC BACKGROUND RADAR SYNC
+  // 🎯 100% FREE PRECISE ON-BLUR GEOCODING (No API Key Required)
   // -----------------------------------------------------------------
-  useEffect(() => {
-    // Build array of text to search dynamically
-    const addressParts = [
-      locationData.streetAddress,
-      locationData.zone,
-      locationData.province,
-      locationData.country
-    ].filter(Boolean);
+  const fetchExactCoordinates = async () => {
+    // Agar address ya city khali hai toh fetch mat karo
+    if (!locationData.streetAddress || !locationData.zone) return;
 
-    if (addressParts.length === 0) return;
+    setIsGeocoding(true);
 
-    const fullQueryString = addressParts.join(", ");
-    const tomtomApiKey = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
+    // Poora query banayen: "Behram Medical Center, Kohat, Khyber Pakhtunkhwa, Pakistan"
+    const fullAddressQuery = `${locationData.streetAddress}, ${locationData.zone}, ${locationData.province}, ${locationData.country}`;
+    const encodedQuery = encodeURIComponent(fullAddressQuery);
 
-    // 800ms debounce layout taake inputs aur dropdowns par smooth request jaye
-    const delayDebounceFn = setTimeout(async () => {
-      setIsGeocoding(true);
+    try {
+      // OpenStreetMap Free Engine for HD Tracking
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodedQuery}&limit=1`
+      );
+      const data = await response.json();
 
-      const url = tomtomApiKey 
-        ? `https://api.tomtom.com/search/2/geocode/${encodeURIComponent(fullQueryString)}.json?key=${tomtomApiKey}&countrySet=${locationData.countryIso || "PK"}&limit=1`
-        : `/api/geocode?address=${encodeURIComponent(fullQueryString)}`;
-
-      try {
-        const response = await fetch(url);
-        const data = await response.json();
-
-        if (data.results && data.results.length > 0) {
-          const { lat, lon } = data.results[0].position;
-          setLocationData(prev => {
-            if (prev.latitude === lat && prev.longitude === lon) return prev;
-            return { ...prev, latitude: lat, longitude: lon };
-          });
-        } else if (data.lat && data.lng) {
-          setLocationData(prev => {
-            if (prev.latitude === data.lat && prev.longitude === data.lng) return prev;
-            return { ...prev, latitude: data.lat, longitude: data.lng };
-          });
-        }
-      } catch (err) {
-        console.error("Auto telemetry mapping failed:", err);
-      } finally {
-        setIsGeocoding(false);
+      if (data && data.length > 0) {
+        // Exact location mil gayi
+        const lat = parseFloat(data[0].lat);
+        const lon = parseFloat(data[0].lon);
+        
+        setLocationData((prev) => ({
+          ...prev,
+          latitude: lat,
+          longitude: lon,
+        }));
+      } else {
+        console.log("Street specific match missed, using general city area fallback.");
       }
-    }, 800);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [
-    locationData.streetAddress, 
-    locationData.zone, 
-    locationData.province, 
-    locationData.country, 
-    locationData.countryIso,
-    setLocationData
-  ]);
+    } catch (err) {
+      console.error("Geocoding radar failed:", err);
+    } finally {
+      setIsGeocoding(false);
+    }
+  };
 
   // -----------------------------------------------------------------
   // 🟢 CLEAN CORRECTION HANDLERS
@@ -206,6 +188,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
             <select 
               value={locationData.zone} 
               onChange={(e) => setLocationData({ ...locationData, zone: e.target.value })}
+              onBlur={fetchExactCoordinates} // 🚀 CITY CHOOSE KARKE BHI TRIGGGER KAREGA
               disabled={!locationData.provinceIso || cities.length === 0}
               className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50 disabled:bg-gray-100"
             >
@@ -227,6 +210,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
             placeholder="e.g. Near Cadet College, Main Highway" 
             value={locationData.streetAddress} 
             onChange={(e) => setLocationData({ ...locationData, streetAddress: e.target.value })}
+            onBlur={fetchExactCoordinates} // 🔥 MAIN MAGIC: ADDRESS LIKH KAR BAHAR TAP KARO, MAP FLY KAREGA!
             className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500"
           />
         </div>
@@ -237,6 +221,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
             placeholder="e.g. 26000" 
             value={locationData.zipCode} 
             onChange={(e) => setLocationData({ ...locationData, zipCode: e.target.value })}
+            onBlur={fetchExactCoordinates} // ⚡ ZIP CODE LIKH KAR HATOGE TAB BHI JUMP KAREGA
             className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500"
           />
         </div>
