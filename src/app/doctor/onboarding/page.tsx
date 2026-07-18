@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -21,6 +22,13 @@ const stepLabels = [
   "Basic Info", "Contact", "Location", "Clinic Details", 
   "Consultation", "Availability", "Public Profile", "Documents", "Review"
 ];
+
+// TypeScript Interface for Document Structure to keep Vercel fully stable
+export interface DocumentsState {
+  medicalLicense: string;
+  idProof: string;
+  clinicRegistration?: string;
+}
 
 export default function DoctorOnboardingPage() {
   const [step, setStep] = useState<number>(1);
@@ -79,7 +87,12 @@ export default function DoctorOnboardingPage() {
     services: [] 
   });
 
-  const [documents, setDocuments] = useState<any[]>([]);
+  // 🔥 FIXED: Changed from any[] array to exact Object matching the Component specifications
+  const [documents, setDocuments] = useState<DocumentsState>({
+    medicalLicense: "",
+    idProof: "",
+    clinicRegistration: "",
+  });
 
   // -------------------------------------------------------------
   // 🟢 2. INITIAL HANDSHAKE & AUTH
@@ -147,7 +160,6 @@ export default function DoctorOnboardingPage() {
       case 2:
         return <ContactStep data={contact as any} onChange={(updates) => setContact(prev => ({ ...prev, ...updates }))} errors={errors} />;
       case 3:
-        // Connected directly to the updated High-Precision Location Core Component
         return <LocationStep locationData={location} setLocationData={setLocation} />;
       case 4:
         return <ClinicDetailsStep data={clinicDetails as any} onChange={(updates) => setClinicDetails(prev => ({ ...prev, ...updates }))} errors={errors} />;
@@ -158,7 +170,8 @@ export default function DoctorOnboardingPage() {
       case 7:
         return <PublicProfileStep data={publicProfile as any} onChange={(updates) => setPublicProfile(prev => ({ ...prev, ...updates }))} errors={errors} />;
       case 8:
-        return <DocumentsStep data={documents} onChange={(updates) => setDocuments(updates)} errors={errors} />;
+        // 🔥 FIXED: Mapped aligned data properties and functional update patterns perfectly
+        return <DocumentsStep data={documents} onChange={(updates) => setDocuments(prev => ({ ...prev, ...updates }))} errors={errors} />;
       case 9:
         const packagedState = {
           group1: { basicInfo, location, contact },
