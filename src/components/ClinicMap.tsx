@@ -5,7 +5,6 @@ import L from "leaflet";
 import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-// ✈️ AUTOMATIC FLY-TO (Sirf tab chalega jab Parent Component bahar se API Search/Dropdown change kare)
 function MapRecenter({ lat, lng, zoomLevel }: { lat: number; lng: number, zoomLevel: number }) {
   const map = useMap();
   useEffect(() => {
@@ -13,7 +12,6 @@ function MapRecenter({ lat, lng, zoomLevel }: { lat: number; lng: number, zoomLe
       const currentCenter = map.getCenter();
       const distance = map.distance(currentCenter, L.latLng(lat, lng));
       
-      // ✅ Agar user ne drop-down ya search use ki hai (to distance bara hoga)
       if (distance > 50 || map.getZoom() !== zoomLevel) {
         map.flyTo([lat, lng], zoomLevel, { animate: true, duration: 1.5, easeLinearity: 0.25 });
       }
@@ -22,7 +20,6 @@ function MapRecenter({ lat, lng, zoomLevel }: { lat: number; lng: number, zoomLe
   return null;
 }
 
-// 📐 SIZE FIX: Fullscreen mode toggle hone par map ko resize karna (Grey Map Bug Fix)
 function MapSizeListener({ isFullscreen }: { isFullscreen?: boolean }) {
   const map = useMap();
   useEffect(() => {
@@ -34,7 +31,6 @@ function MapSizeListener({ isFullscreen }: { isFullscreen?: boolean }) {
   return null;
 }
 
-// 🎯 EVENT TRACKER: Tracks Map Dragging for Center Pin System
 function MapEventsTracker({ 
   onMoveStart, 
   onMoveEnd, 
@@ -46,16 +42,16 @@ function MapEventsTracker({
 }) {
   const map = useMapEvents({
     dragstart: () => {
-      if (onMoveStart) onMoveStart(); // Pin uthegi
+      if (onMoveStart) onMoveStart(); 
     },
     moveend: () => {
       const center = map.getCenter();
-      if (onMoveEnd) onMoveEnd(center.lat, center.lng); // Reverse Geocode chalega
+      if (onMoveEnd) onMoveEnd(center.lat, center.lng); 
     },
     zoomend: () => {
       const center = map.getCenter();
       if (onZoomChange) onZoomChange(map.getZoom());
-      if (onMoveEnd) onMoveEnd(center.lat, center.lng); // Zoom ke baad bhi address refresh karo
+      if (onMoveEnd) onMoveEnd(center.lat, center.lng); 
     }
   });
   return null;
@@ -81,7 +77,6 @@ export default function ClinicMap({
   onZoomChange 
 }: ClinicMapProps) {
 
-  // Default view setting
   const defaultLat = lat || 30.3753; 
   const defaultLng = lng || 69.3451;
 
@@ -92,7 +87,7 @@ export default function ClinicMap({
       zoom={zoomLevel}
       maxZoom={22}
       scrollWheelZoom={true}
-      zoomControl={false} // Removed default zoom control to make UI cleaner
+      zoomControl={false} 
       className="w-full h-full min-h-[400px] z-10 bg-gray-100"
     >
       <TileLayer
@@ -106,14 +101,11 @@ export default function ClinicMap({
       <MapRecenter lat={lat} lng={lng} zoomLevel={zoomLevel} />
       <MapSizeListener isFullscreen={isFullscreen} />
       
-      {/* Natively track dragging */}
       <MapEventsTracker 
         onMoveStart={onMoveStart} 
         onMoveEnd={onMoveEnd} 
         onZoomChange={onZoomChange} 
       />
-
-      {/* 🚫 MARKER REMOVED INTENTIONALLY - Replaced by pure CSS Fixed Pin in Parent */}
       
     </MapContainer>
   );
