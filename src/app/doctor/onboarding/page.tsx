@@ -7,13 +7,13 @@ import { Loader2, Check, ChevronLeft, ChevronRight, MapPin } from "lucide-react"
 
 // --- IMPORTING ALL STEPS ---
 import BasicInfoStep from "@/components/onboarding/BasicInfoStep";
-import ContactStep from "@/components/onboarding/ContactStep"; // Create this placeholder if missing
+import ContactStep from "@/components/onboarding/ContactStep"; 
 import LocationStep, { LocationState } from "@/components/onboarding/LocationStep";
 import ClinicDetailsStep from "@/components/onboarding/ClinicDetailsStep";
 import ConsultationStep from "@/components/onboarding/ConsultationStep";
 import AvailabilityStep from "@/components/onboarding/AvailabilityStep";
-import PublicProfileStep from "@/components/onboarding/PublicProfileStep"; // Placeholder
-import DocumentsStep from "@/components/onboarding/DocumentsStep"; // Placeholder
+import PublicProfileStep from "@/components/onboarding/PublicProfileStep"; 
+import DocumentsStep from "@/components/onboarding/DocumentsStep"; 
 import ReviewStep from "@/components/onboarding/ReviewStep";
 
 // Setup Array for Progress Mapping
@@ -36,7 +36,6 @@ export default function DoctorOnboardingPage() {
   // -------------------------------------------------------------
   // 🟢 1. PERFECTLY ALIGNED STATES
   // -------------------------------------------------------------
-
   const [basicInfo, setBasicInfo] = useState({
     clinicName: "", doctorName: "", specialization: "", 
     customSpecialization: "", qualification: "", experienceYears: "", registrationNumber: "",
@@ -63,7 +62,6 @@ export default function DoctorOnboardingPage() {
     currency: "PKR", consultationFee: 0, slotSizeMinutes: "30",
   });
 
-  // 🟢 FIXED: Added Type Assertion to match explicit day literals ("Monday" | "Tuesday" etc.)
   const [availability, setAvailability] = useState({
     schedule: [
       { day: "Monday" as const, isAvailable: true, slots: [{ id: "m-1", startTime: "09:00", endTime: "17:00" }] },
@@ -80,7 +78,7 @@ export default function DoctorOnboardingPage() {
     profileSlug: "", 
     services: [] 
   });
-  
+
   const [documents, setDocuments] = useState<any[]>([]);
 
   // -------------------------------------------------------------
@@ -146,15 +144,21 @@ export default function DoctorOnboardingPage() {
     switch (step) {
       case 1:
         return <BasicInfoStep data={basicInfo as any} onChange={(updates) => setBasicInfo(prev => ({ ...prev, ...updates }))} errors={errors} />;
+      case 2:
+        return <ContactStep data={contact as any} onChange={(updates) => setContact(prev => ({ ...prev, ...updates }))} errors={errors} />;
       case 3:
+        // Connected directly to the updated High-Precision Location Core Component
         return <LocationStep locationData={location} setLocationData={setLocation} />;
       case 4:
         return <ClinicDetailsStep data={clinicDetails as any} onChange={(updates) => setClinicDetails(prev => ({ ...prev, ...updates }))} errors={errors} />;
       case 5:
         return <ConsultationStep data={consultation as any} onChange={(updates) => setConsultation(prev => ({ ...prev, ...updates }))} errors={errors} />;
       case 6:
-        // 🟢 FIXED: Safely passing updates back to availability structure
         return <AvailabilityStep data={availability as any} onChange={(updates) => setAvailability(prev => ({ ...prev, ...updates } as any))} errors={errors} />;
+      case 7:
+        return <PublicProfileStep data={publicProfile as any} onChange={(updates) => setPublicProfile(prev => ({ ...prev, ...updates }))} errors={errors} />;
+      case 8:
+        return <DocumentsStep data={documents} onChange={(updates) => setDocuments(updates)} errors={errors} />;
       case 9:
         const packagedState = {
           group1: { basicInfo, location, contact },
