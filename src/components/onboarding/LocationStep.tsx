@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { getGlobalCountries, getGlobalStates, getGlobalCities } from "@/lib/locations";
-import { MapPin, Coins, Loader2, Globe, Building2, Map } from "lucide-react";
+import { MapPin, Coins, Loader2, Globe, Building2, Map, Search } from "lucide-react";
 
 const ClinicMap = dynamic(() => import("@/components/ClinicMap"), { ssr: false });
 
@@ -44,7 +44,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
   const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedIso = e.target.value;
     const countryObj = countries.find((c) => c.isoCode === selectedIso);
-    
+
     if (countryObj) {
       setLocationData({
         ...locationData,
@@ -63,7 +63,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
   const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedStateIso = e.target.value;
     const stateObj = states.find((s) => s.isoCode === selectedStateIso);
-    
+
     if (stateObj) {
       setLocationData({
         ...locationData,
@@ -74,20 +74,36 @@ export default function LocationStep({ locationData, setLocationData }: Location
     }
   };
 
+  // High Precision Engine: Hitting TomTom API with absolute contextual isolation
   const triggerAutomaticGeocode = async () => {
-    if (!locationData.streetAddress || !locationData.zone || !locationData.country) return;
-    
+    if (!locationData.streetAddress || !locationData.country) return;
+
     setIsGeocoding(true);
-    const fullQueryString = `${locationData.streetAddress}, ${locationData.zone}, ${locationData.province}, ${locationData.country}`;
+    
+    // Construct rich targeted query string
+    const fullQueryString = `${locationData.streetAddress}, ${locationData.zone || ""}, ${locationData.province || ""}, ${locationData.country}`;
+    const tomtomApiKey = process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
+
+    // Smart fallback strategy: Agar token configured na ho toh purane custom route ko call karega
+    const url = tomtomApiKey 
+      ? `https://api.tomtom.com/search/2/geocode/${encodeURIComponent(fullQueryString)}.json?key=${tomtomApiKey}&countrySet=${locationData.countryIso || "PK"}&limit=1`
+      : `/api/geocode?address=${encodeURIComponent(fullQueryString)}`;
 
     try {
-      const response = await fetch(`/api/geocode?address=${encodeURIComponent(fullQueryString)}`);
+      const response = await fetch(url);
       const data = await response.json();
-      if (data.lat && data.lng) {
+
+      // If resolving via TomTom Structure
+      if (data.results && data.results.length > 0) {
+        const { lat, lon } = data.results[0].position;
+        setLocationData(prev => ({ ...prev, latitude: lat, longitude: lon }));
+      } 
+      // If resolving via old internal API structure fallback
+      else if (data.lat && data.lng) {
         setLocationData(prev => ({ ...prev, latitude: data.lat, longitude: data.lng }));
       }
     } catch (err) {
-      console.error("Auto Location Resolving failed", err);
+      console.error("Advanced Radar Location Tracking failed:", err);
     } finally {
       setIsGeocoding(false);
     }
@@ -101,7 +117,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
         </h2>
         <p className="text-gray-500 text-sm">Select your global location matrix to configure billing and radar systems.</p>
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">Country</label>
@@ -175,14 +191,22 @@ export default function LocationStep({ locationData, setLocationData }: Location
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div className="md:col-span-2">
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">Street Address</label>
-          <input 
-            type="text" 
-            placeholder="e.g. 123 Main Street, Clinic Building" 
-            value={locationData.streetAddress} 
-            onChange={(e) => setLocationData({ ...locationData, streetAddress: e.target.value })}
-            onBlur={triggerAutomaticGeocode} 
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500"
-          />
+          <div className="relative flex gap-2">
+            <input 
+              type="text" 
+              placeholder="e.g. Near Cadet College, Main Highway" 
+              value={locationData.streetAddress} 
+              onChange={(e) => setLocationData({ ...locationData, streetAddress: e.target.value })}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500"
+            />
+            <button
+              type="button"
+              onClick={triggerAutomaticGeocode}
+              className="px-4 py-3 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-800 transition-all flex items-center gap-1.5 shrink-0"
+            >
+              <Search className="w-4 h-4" /> Radar Find
+            </button>
+          </div>
         </div>
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">Zip Code</label>
@@ -204,7 +228,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
           </label>
           {isGeocoding && (
             <span className="text-[12px] text-primary-600 flex items-center gap-1.5 font-bold bg-primary-50 px-3 py-1 rounded-full">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Resolving Coordinates...
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Pinpointing Clinic...
             </span>
           )}
         </div>
