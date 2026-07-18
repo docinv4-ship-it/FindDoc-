@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { getGlobalCountries, getGlobalStates, getGlobalCities } from "@/lib/locations";
 import { MapPin, Coins, Loader2, Globe, Building2, Map, Search, Maximize2, X, CheckCircle2 } from "lucide-react";
@@ -30,11 +30,14 @@ export default function LocationStep({ locationData, setLocationData }: Location
   const [mapZoom, setMapZoom] = useState(5); 
   const [mapSearchQuery, setMapSearchQuery] = useState("");
 
-  // 📍 NEW: Temporary Map State (Uber Style Drag & Confirm)
+  // 📍 NEW: Map Tracking States
   const [tempCoords, setTempCoords] = useState({ lat: locationData.latitude || 30.3753, lng: locationData.longitude || 69.3451 });
   const [previewAddress, setPreviewAddress] = useState("");
   const [isMapMoving, setIsMapMoving] = useState(false);
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
+  
+  // 🎯 ELON LEVEL FIX: Tracks if the current map pin is confirmed
+  const [isLocationConfirmed, setIsLocationConfirmed] = useState(false);
 
   const countries = useMemo(() => getGlobalCountries(), []);
   const states = useMemo(() => locationData.countryIso ? getGlobalStates(locationData.countryIso) : [], [locationData.countryIso]);
@@ -49,62 +52,41 @@ export default function LocationStep({ locationData, setLocationData }: Location
         const lat = parseFloat(data[0].lat);
         const lng = parseFloat(data[0].lon);
         setMapZoom(targetZoom);
-        setTempCoords({ lat, lng }); // Move map visually
+        setTempCoords({ lat, lng }); 
+        setIsLocationConfirmed(false); // Reset Confirmation on auto-flight
       }
     } catch (error) {
       console.error("Flight Geocode error:", error);
     }
   };
 
-  // -----------------------------------------------------------------
-  // 🔍 DROPDOWN HANDLERS (Step-by-Step Zooming)
-  // -----------------------------------------------------------------
   const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedIso = e.target.value;
     const countryObj = countries.find((c) => c.isoCode === selectedIso);
-    
-    setLocationData({
-      ...locationData,
-      country: countryObj ? countryObj.name : "",
-      countryIso: selectedIso,
-      currency: countryObj ? countryObj.currency : "",
-      province: "", provinceIso: "", zone: "", streetAddress: "", zipCode: ""
-    });
-
+    setLocationData({ ...locationData, country: countryObj ? countryObj.name : "", countryIso: selectedIso, currency: countryObj ? countryObj.currency : "", province: "", provinceIso: "", zone: "", streetAddress: "", zipCode: "" });
     if (countryObj) smoothMapFlight(countryObj.name, 5); 
   };
 
   const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedIso = e.target.value;
     const stateObj = states.find((s) => s.isoCode === selectedIso);
-    
-    setLocationData({
-      ...locationData,
-      province: stateObj ? stateObj.name : "",
-      provinceIso: selectedIso,
-      zone: "", streetAddress: "", zipCode: ""
-    });
-
+    setLocationData({ ...locationData, province: stateObj ? stateObj.name : "", provinceIso: selectedIso, zone: "", streetAddress: "", zipCode: "" });
     if (stateObj) smoothMapFlight(`${stateObj.name}, ${locationData.country}`, 8); 
   };
 
   const handleCityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const cityName = e.target.value;
     setLocationData({ ...locationData, zone: cityName, streetAddress: "", zipCode: "" });
-    
     if (cityName) smoothMapFlight(`${cityName}, ${locationData.province}, ${locationData.country}`, 12); 
   };
 
-  // -----------------------------------------------------------------
-  // 🚀 SEARCH HANDLERS (Form & Map Search)
-  // -----------------------------------------------------------------
   const executeSearch = async (searchQuery: string, zoomLvl: number) => {
     if (!searchQuery.trim()) return;
     setIsFetchingAddress(true);
+    setIsLocationConfirmed(false); // User searching means they want to change location
     try {
       const nominatimRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`);
       const nominatimData = await nominatimRes.json();
-
       if (nominatimData?.length > 0) {
         const lat = parseFloat(nominatimData[0].lat);
         const lng = parseFloat(nominatimData[0].lon);
@@ -134,7 +116,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
   };
 
   // -----------------------------------------------------------------
-  // 📍 NEW: UBER STYLE REVERSE GEOCODING (ON MAP DRAG END)
+  // 📍 UBER STYLE DRAG & DROP LOGIC
   // -----------------------------------------------------------------
   const handleMapDragEnd = async (lat: number, lng: number) => {
     setIsMapMoving(false);
@@ -144,18 +126,11 @@ export default function LocationStep({ locationData, setLocationData }: Location
     try {
       const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
       const data = await response.json();
-
       if (data?.address) {
         const addr = data.address;
         let exactStreet = addr.amenity || addr.shop || addr.building || addr.road || addr.neighbourhood || addr.suburb || addr.residential;
-        
-        if (!exactStreet && data.display_name) {
-          exactStreet = data.display_name.split(",")[0]; 
-        }
-
-        // Format a beautiful short address for the preview card
+        if (!exactStreet && data.display_name) exactStreet = data.display_name.split(",")[0]; 
         const shortAddress = exactStreet ? `${exactStreet}, ${addr.city || addr.town || addr.village || addr.county || ''}`.replace(/,\s*$/, '') : data.display_name;
-        
         setPreviewAddress(shortAddress);
       }
     } catch (err) {
@@ -167,7 +142,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
   };
 
   // -----------------------------------------------------------------
-  // ✅ CONFIRM ACTION (Saves Data Finally)
+  // ✅ CONFIRM ACTION
   // -----------------------------------------------------------------
   const handleConfirmLocation = () => {
     setLocationData(prev => ({
@@ -178,6 +153,9 @@ export default function LocationStep({ locationData, setLocationData }: Location
         ? previewAddress 
         : prev.streetAddress
     }));
+    
+    // Hides the button gracefully
+    setIsLocationConfirmed(true); 
     if (isFullscreen) setIsFullscreen(false);
   };
 
@@ -261,7 +239,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
             className="w-full bg-gray-900 hover:bg-gray-800 text-white flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isFetchingAddress ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
-            Find on Map
+            Find Map
           </button>
         </div>
       </div>
@@ -293,13 +271,10 @@ export default function LocationStep({ locationData, setLocationData }: Location
               ? "fixed inset-0 z-[9999] bg-gray-100 flex flex-col" 
               : "w-full h-[400px] rounded-2xl overflow-hidden border border-gray-200 shadow-inner relative z-10"}
            >
-              {/* 🚀 FULLSCREEN FLOATING HEADER */}
               {isFullscreen && (
                 <div className="absolute top-4 left-4 right-4 md:top-6 md:left-1/2 md:-translate-x-1/2 md:w-[600px] z-[10000] flex gap-3 items-center pointer-events-none">
                   <div className="flex-1 bg-white rounded-2xl shadow-2xl border border-gray-100 p-1.5 flex items-center pointer-events-auto transition-all focus-within:ring-2 focus-within:ring-primary-500">
-                    <div className="pl-3 pr-2">
-                      <Search className="w-5 h-5 text-gray-400" />
-                    </div>
+                    <div className="pl-3 pr-2"><Search className="w-5 h-5 text-gray-400" /></div>
                     <input 
                       type="text" 
                       placeholder="Search clinics, streets, or landmarks..." 
@@ -308,17 +283,11 @@ export default function LocationStep({ locationData, setLocationData }: Location
                       onChange={(e) => setMapSearchQuery(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleMapDirectSearch()}
                     />
-                    <button 
-                      onClick={handleMapDirectSearch}
-                      className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors ml-2"
-                    >
+                    <button onClick={handleMapDirectSearch} className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors ml-2">
                       Find
                     </button>
                   </div>
-                  <button 
-                    onClick={() => setIsFullscreen(false)} 
-                    className="bg-white text-gray-700 shadow-2xl border border-gray-100 p-3.5 rounded-2xl hover:bg-gray-50 flex gap-2 items-center font-bold pointer-events-auto transition-transform active:scale-95"
-                  >
+                  <button onClick={() => setIsFullscreen(false)} className="bg-white text-gray-700 shadow-2xl border border-gray-100 p-3.5 rounded-2xl hover:bg-gray-50 flex gap-2 items-center font-bold pointer-events-auto transition-transform active:scale-95">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
@@ -331,51 +300,64 @@ export default function LocationStep({ locationData, setLocationData }: Location
                   zoomLevel={mapZoom}
                   isFullscreen={isFullscreen} 
                   onZoomChange={(newZoom) => setMapZoom(newZoom)} 
-                  onMoveStart={() => setIsMapMoving(true)}
+                  onMoveStart={() => {
+                    setIsMapMoving(true);
+                    setIsLocationConfirmed(false); // 👈 As soon as user touches map, un-confirm to show button again!
+                  }}
                   onMoveEnd={handleMapDragEnd} 
                 />
 
-                {/* 📍 CENTER PIN (UBER STYLE - NO CLICK, JUST DRAG MAP) */}
+                {/* 📍 CENTER PIN */}
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[400] pointer-events-none flex flex-col items-center">
                   <div className={`transition-transform duration-200 ${isMapMoving ? '-translate-y-3' : 'translate-y-0'}`}>
                     <div className="relative flex items-center justify-center">
-                       {/* Pulsing Dot Effect (Hidden when moving) */}
-                       {!isMapMoving && <div className="animate-ping absolute inline-flex h-10 w-10 rounded-full bg-primary-500 opacity-30"></div>}
-                       {/* SVG Map Pin */}
+                       {!isMapMoving && <div className={`animate-ping absolute inline-flex h-10 w-10 rounded-full opacity-30 ${isLocationConfirmed ? 'bg-green-500' : 'bg-primary-500'}`}></div>}
                        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-lg">
-                          <path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2ZM12 11.5C10.62 11.5 9.5 10.38 9.5 9C9.5 7.62 10.62 6.5 12 6.5C13.38 6.5 14.5 7.62 14.5 9C14.5 10.38 13.38 11.5 12 11.5Z" fill="#1d4ed8" stroke="white" strokeWidth="1.5"/>
+                          <path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2ZM12 11.5C10.62 11.5 9.5 10.38 9.5 9C9.5 7.62 10.62 6.5 12 6.5C13.38 6.5 14.5 7.62 14.5 9C14.5 10.38 13.38 11.5 12 11.5Z" fill={isLocationConfirmed ? "#16a34a" : "#1d4ed8"} stroke="white" strokeWidth="1.5"/>
                        </svg>
                     </div>
                   </div>
-                  {/* Pin Drop Shadow */}
                   <div className={`w-3 h-1.5 bg-black/30 rounded-[100%] blur-[2px] transition-all duration-200 ${isMapMoving ? 'scale-75 opacity-40 mt-3' : 'scale-100 opacity-80 -mt-1'}`}></div>
                 </div>
 
-                {/* ✅ BOTTOM ACTION CARD (ADDRESS PREVIEW & CONFIRM) */}
-                <div className="absolute bottom-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-[500px] z-[1000] bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 flex flex-col gap-3">
+                {/* ✅ BOTTOM ACTION CARD (WITH ELON-STYLE ANIMATED HIDING) */}
+                <div className={`absolute bottom-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-[500px] z-[1000] bg-white rounded-2xl shadow-2xl border transition-all duration-300 overflow-hidden ${isLocationConfirmed ? 'border-green-400 p-3' : 'border-gray-100 p-4'}`}>
+                  
                   <div className="flex items-center gap-3 px-1">
-                    <div className="w-8 h-8 rounded-full bg-primary-50 flex items-center justify-center shrink-0">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors duration-300 ${isLocationConfirmed ? 'bg-green-100 text-green-600' : 'bg-primary-50 text-primary-600'}`}>
                       {isFetchingAddress || isMapMoving ? (
-                        <Loader2 className="w-4 h-4 text-primary-600 animate-spin" />
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : isLocationConfirmed ? (
+                        <CheckCircle2 className="w-5 h-5" />
                       ) : (
-                        <MapPin className="w-4 h-4 text-primary-600" />
+                        <MapPin className="w-4 h-4" />
                       )}
                     </div>
                     <div className="flex-1 overflow-hidden">
-                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Map Center Address</p>
+                      <p className={`text-[11px] font-bold uppercase tracking-wider mb-0.5 transition-colors duration-300 ${isLocationConfirmed ? 'text-green-600' : 'text-gray-400'}`}>
+                        {isLocationConfirmed ? "Location Confirmed ✅" : "Map Center Address"}
+                      </p>
                       <p className="text-sm font-semibold text-gray-900 truncate">
                         {isMapMoving ? "Move map to set location..." : isFetchingAddress ? "Fetching address..." : (previewAddress || "Point selected on map")}
                       </p>
                     </div>
                   </div>
-                  <button 
-                    onClick={handleConfirmLocation}
-                    disabled={isMapMoving || isFetchingAddress}
-                    className="w-full bg-primary-600 hover:bg-primary-700 text-white flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all disabled:opacity-50 shadow-md"
-                  >
-                    <CheckCircle2 className="w-5 h-5" /> Confirm Location
-                  </button>
+                  
+                  {/* Tailwind Grid Animation for smoothly collapsing the button */}
+                  <div className={`grid transition-all duration-300 ease-in-out ${isLocationConfirmed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100 mt-3'}`}>
+                    <div className="overflow-hidden">
+                      <button 
+                        onClick={handleConfirmLocation}
+                        disabled={isMapMoving || isFetchingAddress}
+                        className="w-full bg-primary-600 hover:bg-primary-700 text-white flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all disabled:opacity-50 shadow-md"
+                      >
+                        <CheckCircle2 className="w-5 h-5" /> Confirm Location
+                      </button>
+                    </div>
+                  </div>
+
                 </div>
+
               </div>
            </div>
         )}
