@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { getGlobalCountries, getGlobalStates, getGlobalCities } from "@/lib/locations";
 import { MapPin, Coins, Loader2, Globe, Building2, Map, Search, Maximize2, X, CheckCircle2 } from "lucide-react";
@@ -30,14 +30,25 @@ export default function LocationStep({ locationData, setLocationData }: Location
   const [mapZoom, setMapZoom] = useState(5); 
   const [mapSearchQuery, setMapSearchQuery] = useState("");
 
-  // 📍 NEW: Map Tracking States
+  // 📍 Map Tracking States
   const [tempCoords, setTempCoords] = useState({ lat: locationData.latitude || 30.3753, lng: locationData.longitude || 69.3451 });
   const [previewAddress, setPreviewAddress] = useState("");
   const [isMapMoving, setIsMapMoving] = useState(false);
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
   
-  // 🎯 ELON LEVEL FIX: Tracks if the current map pin is confirmed
+  // 🎯 ELON LEVEL FIX: Tracks if location is confirmed AND if card should be completely hidden
   const [isLocationConfirmed, setIsLocationConfirmed] = useState(false);
+  const [isCardHidden, setIsCardHidden] = useState(false);
+  
+  // Safe Timer Ref to prevent memory leaks
+  const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, []);
 
   const countries = useMemo(() => getGlobalCountries(), []);
   const states = useMemo(() => locationData.countryIso ? getGlobalStates(locationData.countryIso) : [], [locationData.countryIso]);
@@ -53,11 +64,17 @@ export default function LocationStep({ locationData, setLocationData }: Location
         const lng = parseFloat(data[0].lon);
         setMapZoom(targetZoom);
         setTempCoords({ lat, lng }); 
-        setIsLocationConfirmed(false); // Reset Confirmation on auto-flight
+        resetConfirmationState();
       }
     } catch (error) {
       console.error("Flight Geocode error:", error);
     }
+  };
+
+  const resetConfirmationState = () => {
+    setIsLocationConfirmed(false);
+    setIsCardHidden(false);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
   };
 
   const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -83,7 +100,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
   const executeSearch = async (searchQuery: string, zoomLvl: number) => {
     if (!searchQuery.trim()) return;
     setIsFetchingAddress(true);
-    setIsLocationConfirmed(false); // User searching means they want to change location
+    resetConfirmationState(); // Show card again if user is searching
     try {
       const nominatimRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`);
       const nominatimData = await nominatimRes.json();
@@ -142,7 +159,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
   };
 
   // -----------------------------------------------------------------
-  // ✅ CONFIRM ACTION
+  // ✅ CONFIRM ACTION (WITH AUTO HIDE LOGIC)
   // -----------------------------------------------------------------
   const handleConfirmLocation = () => {
     setLocationData(prev => ({
@@ -154,9 +171,17 @@ export default function LocationStep({ locationData, setLocationData }: Location
         : prev.streetAddress
     }));
     
-    // Hides the button gracefully
+    // 1. Show the Green Success State Instantly
     setIsLocationConfirmed(true); 
-    if (isFullscreen) setIsFullscreen(false);
+    
+    // 2. Clear any existing timer
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    
+    // 3. Auto Hide the completely card after 1.2 seconds
+    hideTimerRef.current = setTimeout(() => {
+      setIsCardHidden(true); // Triggers the CSS transform to slide it down and fade out
+      if (isFullscreen) setIsFullscreen(false);
+    }, 1200);
   };
 
   return (
@@ -293,7 +318,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
                 </div>
               )}
               
-              <div className="flex-1 h-full w-full relative">
+              <div className="flex-1 h-full w-full relative overflow-hidden">
                 <ClinicMap 
                   lat={tempCoords.lat} 
                   lng={tempCoords.lng} 
@@ -302,7 +327,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
                   onZoomChange={(newZoom) => setMapZoom(newZoom)} 
                   onMoveStart={() => {
                     setIsMapMoving(true);
-                    setIsLocationConfirmed(false); // 👈 As soon as user touches map, un-confirm to show button again!
+                    resetConfirmationState(); // 👈 MAP TOUCH HOTE HI CARD WAPAS AYEGA
                   }}
                   onMoveEnd={handleMapDragEnd} 
                 />
@@ -320,9 +345,12 @@ export default function LocationStep({ locationData, setLocationData }: Location
                   <div className={`w-3 h-1.5 bg-black/30 rounded-[100%] blur-[2px] transition-all duration-200 ${isMapMoving ? 'scale-75 opacity-40 mt-3' : 'scale-100 opacity-80 -mt-1'}`}></div>
                 </div>
 
-                {/* ✅ BOTTOM ACTION CARD (WITH ELON-STYLE ANIMATED HIDING) */}
-                <div className={`absolute bottom-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-[500px] z-[1000] bg-white rounded-2xl shadow-2xl border transition-all duration-300 overflow-hidden ${isLocationConfirmed ? 'border-green-400 p-3' : 'border-gray-100 p-4'}`}>
-                  
+                {/* ✅ BOTTOM ACTION CARD (NOW WITH COMPLETE AUTO-HIDE LOGIC) */}
+                <div 
+                  className={`absolute left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-[500px] z-[1000] bg-white rounded-2xl shadow-2xl border transition-all duration-500 ease-in-out overflow-hidden
+                  ${isCardHidden ? '-bottom-32 opacity-0 pointer-events-none scale-95' : 'bottom-4 opacity-100 scale-100'}
+                  ${isLocationConfirmed ? 'border-green-400 p-3' : 'border-gray-100 p-4'}`}
+                >
                   <div className="flex items-center gap-3 px-1">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors duration-300 ${isLocationConfirmed ? 'bg-green-100 text-green-600' : 'bg-primary-50 text-primary-600'}`}>
                       {isFetchingAddress || isMapMoving ? (
@@ -343,7 +371,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
                     </div>
                   </div>
                   
-                  {/* Tailwind Grid Animation for smoothly collapsing the button */}
+                  {/* The button itself smoothly compresses */}
                   <div className={`grid transition-all duration-300 ease-in-out ${isLocationConfirmed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100 mt-3'}`}>
                     <div className="overflow-hidden">
                       <button 
@@ -355,7 +383,6 @@ export default function LocationStep({ locationData, setLocationData }: Location
                       </button>
                     </div>
                   </div>
-
                 </div>
 
               </div>
