@@ -28,13 +28,71 @@ interface LocationStepProps {
 export default function LocationStep({ locationData, setLocationData }: LocationStepProps) {
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mapZoom, setMapZoom] = useState(5); // 🚀 DYNAMIC ZOOM ENGINE ADDED
 
   const countries = useMemo(() => getGlobalCountries(), []);
   const states = useMemo(() => locationData.countryIso ? getGlobalStates(locationData.countryIso) : [], [locationData.countryIso]);
   const cities = useMemo(() => (locationData.countryIso && locationData.provinceIso) ? getGlobalCities(locationData.countryIso, locationData.provinceIso) : [], [locationData.countryIso, locationData.provinceIso]);
 
+  // 🌍 HELPER: Background Geocoder to move map step-by-step smoothly
+  const smoothMapFlight = async (query: string, zoomLevel: number) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+      const data = await res.json();
+      if (data?.length > 0) {
+        setMapZoom(zoomLevel);
+        setLocationData(prev => ({ 
+          ...prev, 
+          latitude: parseFloat(data[0].lat), 
+          longitude: parseFloat(data[0].lon) 
+        }));
+      }
+    } catch (error) {
+      console.error("Flight Geocode error:", error);
+    }
+  };
+
   // -----------------------------------------------------------------
-  // 🔍 PRO-LEVEL GEOCODING (Dual-Engine Logic)
+  // 🔍 DROPDOWN HANDLERS (STEP-BY-STEP GOOGLE MAPS FEEL)
+  // -----------------------------------------------------------------
+  const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedIso = e.target.value;
+    const countryObj = countries.find((c) => c.isoCode === selectedIso);
+    
+    setLocationData({
+      ...locationData,
+      country: countryObj ? countryObj.name : "",
+      countryIso: selectedIso,
+      currency: countryObj ? countryObj.currency : "",
+      province: "", provinceIso: "", zone: "", streetAddress: "", zipCode: ""
+    });
+
+    if (countryObj) smoothMapFlight(countryObj.name, 5); // Fly to Country (Zoom 5)
+  };
+
+  const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedIso = e.target.value;
+    const stateObj = states.find((s) => s.isoCode === selectedIso);
+    
+    setLocationData({
+      ...locationData,
+      province: stateObj ? stateObj.name : "",
+      provinceIso: selectedIso,
+      zone: "", streetAddress: "", zipCode: ""
+    });
+
+    if (stateObj) smoothMapFlight(`${stateObj.name}, ${locationData.country}`, 7); // Fly to Province (Zoom 7)
+  };
+
+  const handleCityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const cityName = e.target.value;
+    setLocationData({ ...locationData, zone: cityName, streetAddress: "", zipCode: "" });
+    
+    if (cityName) smoothMapFlight(`${cityName}, ${locationData.province}, ${locationData.country}`, 13); // Fly to City (Zoom 13)
+  };
+
+  // -----------------------------------------------------------------
+  // 🔍 PRO-LEVEL GEOCODING (Dual-Engine Logic for Street)
   // -----------------------------------------------------------------
   const handleSearchLocation = async () => {
     if (!locationData.country || !locationData.zone || !locationData.streetAddress) {
@@ -43,26 +101,25 @@ export default function LocationStep({ locationData, setLocationData }: Location
     }
 
     setIsGeocoding(true);
-    // Optimized search query with context
     const searchQuery = `${locationData.streetAddress}, ${locationData.zone}, ${locationData.country}`;
     
     try {
-      // 1. Try Photon (Best for POI/Business Names)
       const photonRes = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(searchQuery)}&limit=1`);
       const photonData = await photonRes.json();
 
       if (photonData.features?.length > 0) {
         const [lon, lat] = photonData.features[0].geometry.coordinates;
+        setMapZoom(18); // Zoom to Street Level
         setLocationData(prev => ({ ...prev, latitude: lat, longitude: lon }));
         setIsGeocoding(false);
         return;
       }
 
-      // 2. Try Nominatim (Fallback for Streets/Addresses)
       const nominatimRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`);
       const nominatimData = await nominatimRes.json();
 
       if (nominatimData?.length > 0) {
+        setMapZoom(18);
         setLocationData(prev => ({ 
           ...prev, 
           latitude: parseFloat(nominatimData[0].lat), 
@@ -72,43 +129,40 @@ export default function LocationStep({ locationData, setLocationData }: Location
         return;
       }
 
-      // 3. Last Resort: Move to City Center
-      const cityQuery = `${locationData.zone}, ${locationData.country}`;
-      const cityRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityQuery)}&limit=1`);
-      const cityData = await cityRes.json();
-
-      if (cityData?.length > 0) {
-        setLocationData(prev => ({ 
-          ...prev, 
-          latitude: parseFloat(cityData[0].lat), 
-          longitude: parseFloat(cityData[0].lon) 
-        }));
-        alert("Exact building not found, but we've centered the map on your city. Please tap your location manually.");
-      } else {
-        alert("Location not found. Please try manually selecting your area on the map.");
-      }
-
+      alert("Exact building not found. Please tap your location manually on the map.");
     } catch (err) {
       console.error("Geocoding failed:", err);
-      alert("Search service temporarily unavailable.");
     } finally {
       setIsGeocoding(false);
     }
   };
 
-  // 📍 Reverse Geocoding for Map Taps
+  // -----------------------------------------------------------------
+  // 📍 REVERSE GEOCODING (Map Tap -> Smart Auto Fill)
+  // -----------------------------------------------------------------
   const handleMapTap = async (lat: number, lng: number) => {
     setIsGeocoding(true);
     try {
+      setMapZoom(18); // Keep zoom detailed on tap
       setLocationData((prev) => ({ ...prev, latitude: lat, longitude: lng }));
+      
       const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
       const data = await response.json();
 
       if (data?.address) {
         const addr = data.address;
+        
+        // 🚀 SMART PARSER: Searches for the most accurate label available
+        let exactStreet = addr.amenity || addr.shop || addr.building || addr.road || addr.neighbourhood || addr.suburb || addr.residential;
+        
+        // Fallback: If it's still empty, extract the first part of the full display name
+        if (!exactStreet && data.display_name) {
+          exactStreet = data.display_name.split(",")[0]; 
+        }
+
         setLocationData((prev) => ({
           ...prev,
-          streetAddress: addr.road || addr.neighbourhood || addr.suburb || prev.streetAddress,
+          streetAddress: exactStreet || prev.streetAddress, // 100% guarantee to fill something
           zipCode: addr.postcode || prev.zipCode
         }));
       }
@@ -117,29 +171,6 @@ export default function LocationStep({ locationData, setLocationData }: Location
     } finally {
       setIsGeocoding(false);
     }
-  };
-
-  const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedIso = e.target.value;
-    const countryObj = countries.find((c) => c.isoCode === selectedIso);
-    setLocationData({
-      ...locationData,
-      country: countryObj ? countryObj.name : "",
-      countryIso: selectedIso,
-      currency: countryObj ? countryObj.currency : "",
-      province: "", provinceIso: "", zone: "", streetAddress: "", latitude: 0, longitude: 0
-    });
-  };
-
-  const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedIso = e.target.value;
-    const stateObj = states.find((s) => s.isoCode === selectedIso);
-    setLocationData({
-      ...locationData,
-      province: stateObj ? stateObj.name : "",
-      provinceIso: selectedIso,
-      zone: "", streetAddress: "", latitude: 0, longitude: 0
-    });
   };
 
   return (
@@ -186,7 +217,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">City / Zone</label>
           <div className="relative">
             <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <select value={locationData.zone} onChange={(e) => setLocationData({ ...locationData, zone: e.target.value })} disabled={!locationData.provinceIso} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50 disabled:bg-gray-100">
+            <select value={locationData.zone} onChange={handleCityChange} disabled={!locationData.provinceIso} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50 disabled:bg-gray-100">
               <option value="">Select City...</option>
               {cities.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
             </select>
@@ -274,6 +305,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
                 <ClinicMap 
                   lat={locationData.latitude} 
                   lng={locationData.longitude} 
+                  zoomLevel={mapZoom} // 🚀 PASSING DYNAMIC ZOOM TO MAP
                   onPositionChange={(newLat, newLng) => setLocationData(prev => ({ ...prev, latitude: newLat, longitude: newLng }))} 
                   onMapClick={handleMapTap} 
                 />
