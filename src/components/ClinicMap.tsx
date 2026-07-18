@@ -1,18 +1,28 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 // ✈️ AUTOMATIC RADAR FLY-TO MODULE (EXTREME HD ZOOM)
-// Zoom level ko 17 se badha kar 20 kar diya hai taake direct chat/rooftop par landing ho!
 function MapRecenter({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();
   useEffect(() => {
-    if (lat && lng) {
+    // Sirf tab fly kare jab actual coordinates hon (Zero-state pe nahi)
+    if (lat !== 0 && lng !== 0) {
       map.flyTo([lat, lng], 20, { animate: true, duration: 1.5 });
     }
   }, [lat, lng, map]);
+  return null;
+}
+
+// 🎯 CLICK HANDLER: Map par tap karne se coordinates parent ko bhejna
+function MapClickHandler({ onMapClick }: { onMapClick: (lat: number, lng: number) => void }) {
+  useMapEvents({
+    click(e) {
+      onMapClick(e.latlng.lat, e.latlng.lng);
+    },
+  });
   return null;
 }
 
@@ -20,13 +30,13 @@ interface ClinicMapProps {
   lat: number;
   lng: number;
   onPositionChange: (lat: number, lng: number) => void;
+  onMapClick?: (lat: number, lng: number) => void; // New prop for Tap-to-pin
 }
 
-export default function ClinicMap({ lat, lng, onPositionChange }: ClinicMapProps) {
+export default function ClinicMap({ lat, lng, onPositionChange, onMapClick }: ClinicMapProps) {
   const [leafletInstance, setLeafletInstance] = useState<any>(null);
   const markerRef = useRef<any>(null);
 
-  // 🌍 Next.js Production Build Safe Layer: Leaflet ko sirf client-side par load hone par initialize karein
   useEffect(() => {
     if (typeof window !== "undefined") {
       import("leaflet").then((L) => {
@@ -35,18 +45,19 @@ export default function ClinicMap({ lat, lng, onPositionChange }: ClinicMapProps
     }
   }, []);
 
-  const defaultLat = lat || 30.3753;
+  // Default view setting (Zero State)
+  const defaultLat = lat || 30.3753; // Default Pakistan Center if 0
   const defaultLng = lng || 69.3451;
 
   if (!leafletInstance) {
     return (
-      <div className="w-full h-[400px] rounded-2xl bg-gray-100 flex items-center justify-center text-sm text-gray-400 font-medium animate-pulse">
+      <div className="w-full h-full min-h-[400px] rounded-2xl bg-gray-100 flex items-center justify-center text-sm text-gray-400 font-medium animate-pulse">
         Deploying Satellite Grid...
       </div>
     );
   }
 
-  // 🎨 PREMIUM DYNAMIC HD MARKER (Safe Vercel Render)
+  // 🎨 PREMIUM DYNAMIC HD MARKER
   const customRadarIcon = leafletInstance.divIcon({
     html: `<div class="relative flex items-center justify-center">
             <div class="animate-ping absolute inline-flex h-9 w-9 rounded-full bg-blue-500 opacity-40"></div>
@@ -64,42 +75,43 @@ export default function ClinicMap({ lat, lng, onPositionChange }: ClinicMapProps
     if (marker != null) {
       const position = marker.getLatLng();
       onPositionChange(position.lat, position.lng);
+      // Agar drag ke baad bhi reverse geocode karwana ho to:
+      if (onMapClick) onMapClick(position.lat, position.lng);
     }
   };
 
   return (
-    <div className="w-full h-[400px] rounded-2xl overflow-hidden border border-gray-200 shadow-inner relative z-10">
-      {/* 🔥 EXTREME ZOOM FIX: maxZoom=22 Added to MapContainer */}
-      <MapContainer
-        key={`${defaultLat}-${defaultLng}`}
-        center={[defaultLat, defaultLng]}
-        zoom={lat && lng ? 20 : 5}
+    <MapContainer
+      key={`${defaultLat}-${defaultLng}-init`}
+      center={[defaultLat, defaultLng]}
+      zoom={lat !== 0 && lng !== 0 ? 20 : 5} // Zoom in only if real coordinates exist
+      maxZoom={22}
+      scrollWheelZoom={true}
+      className="w-full h-full min-h-[400px] z-10"
+    >
+      <TileLayer
+        url="https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+        subdomains={["0", "1", "2", "3"]}
+        attribution='&copy; <a href="https://maps.google.com" target="_blank" rel="noopener noreferrer">Google Maps</a>'
         maxZoom={22}
-        scrollWheelZoom={true}
-        className="w-full h-full"
-      >
-        {/* 🌍 DIRECT GOOGLE MAPS HYBRID ENGINE (SATELLITE IMAGES + ROADS + LANDMARKS) */}
-        {/* maxNativeZoom=20 Google ko force karta hai ke extreme HD tiles de, aur maxZoom=22 humein deep digital zoom deta hai */}
-        <TileLayer
-          url="https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-          subdomains={["0", "1", "2", "3"]}
-          attribution='&copy; <a href="https://maps.google.com" target="_blank" rel="noopener noreferrer">Google Maps</a>'
-          maxZoom={22}
-          maxNativeZoom={20}
+        maxNativeZoom={20}
+      />
+
+      <MapRecenter lat={lat} lng={lng} />
+      
+      {/* 🟢 Inject Map Click Handler */}
+      {onMapClick && <MapClickHandler onMapClick={onMapClick} />}
+
+      {/* Show marker ONLY if latitude and longitude are explicitly set */}
+      {lat !== 0 && lng !== 0 && (
+        <Marker
+          position={[lat, lng]}
+          draggable={true}
+          eventHandlers={{ dragend: dragEndHandler }}
+          ref={markerRef}
+          icon={customRadarIcon}
         />
-
-        <MapRecenter lat={lat} lng={lng} />
-
-        {lat && lng && (
-          <Marker
-            position={[lat, lng]}
-            draggable={true}
-            eventHandlers={{ dragend: dragEndHandler }}
-            ref={markerRef}
-            icon={customRadarIcon}
-          />
-        )}
-      </MapContainer>
-    </div>
+      )}
+    </MapContainer>
   );
 }
