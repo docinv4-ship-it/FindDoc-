@@ -28,7 +28,8 @@ interface LocationStepProps {
 export default function LocationStep({ locationData, setLocationData }: LocationStepProps) {
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [mapZoom, setMapZoom] = useState(5); // 🚀 DYNAMIC ZOOM ENGINE ADDED
+  const [mapZoom, setMapZoom] = useState(5); 
+  const [mapSearchQuery, setMapSearchQuery] = useState(""); // 🚀 Fullscreen Search State
 
   const countries = useMemo(() => getGlobalCountries(), []);
   const states = useMemo(() => locationData.countryIso ? getGlobalStates(locationData.countryIso) : [], [locationData.countryIso]);
@@ -53,7 +54,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
   };
 
   // -----------------------------------------------------------------
-  // 🔍 DROPDOWN HANDLERS (STEP-BY-STEP GOOGLE MAPS FEEL)
+  // 🔍 DROPDOWN HANDLERS
   // -----------------------------------------------------------------
   const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedIso = e.target.value;
@@ -67,7 +68,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
       province: "", provinceIso: "", zone: "", streetAddress: "", zipCode: ""
     });
 
-    if (countryObj) smoothMapFlight(countryObj.name, 5); // Fly to Country (Zoom 5)
+    if (countryObj) smoothMapFlight(countryObj.name, 5);
   };
 
   const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -81,20 +82,20 @@ export default function LocationStep({ locationData, setLocationData }: Location
       zone: "", streetAddress: "", zipCode: ""
     });
 
-    if (stateObj) smoothMapFlight(`${stateObj.name}, ${locationData.country}`, 7); // Fly to Province (Zoom 7)
+    if (stateObj) smoothMapFlight(`${stateObj.name}, ${locationData.country}`, 7);
   };
 
   const handleCityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const cityName = e.target.value;
     setLocationData({ ...locationData, zone: cityName, streetAddress: "", zipCode: "" });
     
-    if (cityName) smoothMapFlight(`${cityName}, ${locationData.province}, ${locationData.country}`, 13); // Fly to City (Zoom 13)
+    if (cityName) smoothMapFlight(`${cityName}, ${locationData.province}, ${locationData.country}`, 13);
   };
 
   // -----------------------------------------------------------------
-  // 🔍 PRO-LEVEL GEOCODING (Dual-Engine Logic for Street)
+  // 🔍 FORM INLINE SEARCH LOGIC
   // -----------------------------------------------------------------
-  const handleSearchLocation = async () => {
+  const handleFormSearchLocation = async () => {
     if (!locationData.country || !locationData.zone || !locationData.streetAddress) {
       alert("Please select City and enter a Street Address first.");
       return;
@@ -109,7 +110,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
 
       if (photonData.features?.length > 0) {
         const [lon, lat] = photonData.features[0].geometry.coordinates;
-        setMapZoom(18); // Zoom to Street Level
+        setMapZoom(18);
         setLocationData(prev => ({ ...prev, latitude: lat, longitude: lon }));
         setIsGeocoding(false);
         return;
@@ -138,12 +139,45 @@ export default function LocationStep({ locationData, setLocationData }: Location
   };
 
   // -----------------------------------------------------------------
+  // 🚀 FULLSCREEN MAP SEARCH LOGIC (NEW)
+  // -----------------------------------------------------------------
+  const handleMapDirectSearch = async () => {
+    if (!mapSearchQuery.trim()) return;
+    setIsGeocoding(true);
+    try {
+      const contextQuery = `${mapSearchQuery}, ${locationData.zone || ''}, ${locationData.country || ''}`.trim();
+      const nominatimRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(contextQuery)}&limit=1`);
+      const nominatimData = await nominatimRes.json();
+
+      if (nominatimData?.length > 0) {
+        const lat = parseFloat(nominatimData[0].lat);
+        const lon = parseFloat(nominatimData[0].lon);
+        
+        setMapZoom(18);
+        setLocationData(prev => ({ 
+          ...prev, 
+          latitude: lat, 
+          longitude: lon,
+          // Background address update
+          streetAddress: nominatimData[0].name || prev.streetAddress
+        }));
+      } else {
+        alert("Location not found. Try adding more details.");
+      }
+    } catch (err) {
+      console.error("Direct Search failed:", err);
+    } finally {
+      setIsGeocoding(false);
+    }
+  };
+
+  // -----------------------------------------------------------------
   // 📍 REVERSE GEOCODING (Map Tap -> Smart Auto Fill)
   // -----------------------------------------------------------------
   const handleMapTap = async (lat: number, lng: number) => {
     setIsGeocoding(true);
     try {
-      setMapZoom(18); // Keep zoom detailed on tap
+      setMapZoom(18);
       setLocationData((prev) => ({ ...prev, latitude: lat, longitude: lng }));
       
       const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
@@ -151,18 +185,15 @@ export default function LocationStep({ locationData, setLocationData }: Location
 
       if (data?.address) {
         const addr = data.address;
-        
-        // 🚀 SMART PARSER: Searches for the most accurate label available
         let exactStreet = addr.amenity || addr.shop || addr.building || addr.road || addr.neighbourhood || addr.suburb || addr.residential;
         
-        // Fallback: If it's still empty, extract the first part of the full display name
         if (!exactStreet && data.display_name) {
           exactStreet = data.display_name.split(",")[0]; 
         }
 
         setLocationData((prev) => ({
           ...prev,
-          streetAddress: exactStreet || prev.streetAddress, // 100% guarantee to fill something
+          streetAddress: exactStreet || prev.streetAddress,
           zipCode: addr.postcode || prev.zipCode
         }));
       }
@@ -248,7 +279,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
         </div>
         <div className="md:col-span-3">
           <button 
-            onClick={handleSearchLocation} 
+            onClick={handleFormSearchLocation} 
             disabled={isGeocoding || !locationData.streetAddress}
             className="w-full bg-gray-900 hover:bg-gray-800 text-white flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -287,25 +318,48 @@ export default function LocationStep({ locationData, setLocationData }: Location
            </div>
         ) : (
            <div className={isFullscreen 
-              ? "fixed inset-0 z-[9999] bg-white flex flex-col p-4 md:p-8 shadow-2xl" 
+              ? "fixed inset-0 z-[9999] bg-gray-100 flex flex-col" 
               : "w-full h-[400px] rounded-2xl overflow-hidden border border-gray-200 shadow-inner relative z-10"}
            >
               {isFullscreen && (
-                <div className="flex justify-between items-center mb-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                  <div>
-                    <h3 className="font-bold text-lg">Select Exact Location</h3>
-                    <p className="text-sm text-gray-500">Tap anywhere on the map to drop the pin.</p>
+                <div className="absolute top-4 left-4 right-4 md:top-6 md:left-1/2 md:-translate-x-1/2 md:w-[600px] z-[10000] flex gap-3 items-center pointer-events-none">
+                  
+                  {/* 🚀 Floating Search Bar (Google Maps Style) */}
+                  <div className="flex-1 bg-white rounded-2xl shadow-2xl border border-gray-100 p-1.5 flex items-center pointer-events-auto transition-all focus-within:ring-2 focus-within:ring-primary-500">
+                    <div className="pl-3 pr-2">
+                      {isGeocoding ? <Loader2 className="w-5 h-5 text-gray-400 animate-spin" /> : <Search className="w-5 h-5 text-gray-400" />}
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="Search clinics, streets, or landmarks..." 
+                      className="flex-1 w-full bg-transparent border-none outline-none text-sm font-medium py-2.5 text-gray-900"
+                      value={mapSearchQuery}
+                      onChange={(e) => setMapSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleMapDirectSearch()}
+                    />
+                    <button 
+                      onClick={handleMapDirectSearch}
+                      className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors ml-2"
+                    >
+                      Find
+                    </button>
                   </div>
-                  <button onClick={() => setIsFullscreen(false)} className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 flex gap-2 items-center font-bold">
-                    <X className="w-5 h-5" /> Close Map
+
+                  {/* ❌ Close Button */}
+                  <button 
+                    onClick={() => setIsFullscreen(false)} 
+                    className="bg-white text-gray-700 shadow-2xl border border-gray-100 p-3.5 rounded-2xl hover:bg-gray-50 flex gap-2 items-center font-bold pointer-events-auto transition-transform active:scale-95"
+                  >
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
               )}
-              <div className="flex-1 rounded-xl overflow-hidden">
+              
+              <div className="flex-1 h-full w-full">
                 <ClinicMap 
                   lat={locationData.latitude} 
                   lng={locationData.longitude} 
-                  zoomLevel={mapZoom} // 🚀 PASSING DYNAMIC ZOOM TO MAP
+                  zoomLevel={mapZoom}
                   onPositionChange={(newLat, newLng) => setLocationData(prev => ({ ...prev, latitude: newLat, longitude: newLng }))} 
                   onMapClick={handleMapTap} 
                 />
