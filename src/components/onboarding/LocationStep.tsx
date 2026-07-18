@@ -27,14 +27,14 @@ interface LocationStepProps {
 
 export default function LocationStep({ locationData, setLocationData }: LocationStepProps) {
   const [isGeocoding, setIsGeocoding] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false); // 📱 Fullscreen Mode State
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const countries = useMemo(() => getGlobalCountries(), []);
   const states = useMemo(() => locationData.countryIso ? getGlobalStates(locationData.countryIso) : [], [locationData.countryIso]);
   const cities = useMemo(() => (locationData.countryIso && locationData.provinceIso) ? getGlobalCities(locationData.countryIso, locationData.provinceIso) : [], [locationData.countryIso, locationData.provinceIso]);
 
   // -----------------------------------------------------------------
-  // 🔍 FORWARD GEOCODING (Search Button -> Pin Drop)
+  // 🔍 PRO-LEVEL GEOCODING (Dual-Engine Logic)
   // -----------------------------------------------------------------
   const handleSearchLocation = async () => {
     if (!locationData.country || !locationData.zone || !locationData.streetAddress) {
@@ -43,52 +43,73 @@ export default function LocationStep({ locationData, setLocationData }: Location
     }
 
     setIsGeocoding(true);
-    const fullAddressQuery = `${locationData.streetAddress}, ${locationData.zone}, ${locationData.province}, ${locationData.country}`;
+    // Optimized search query with context
+    const searchQuery = `${locationData.streetAddress}, ${locationData.zone}, ${locationData.country}`;
     
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddressQuery)}&limit=1`);
-      const data = await response.json();
+      // 1. Try Photon (Best for POI/Business Names)
+      const photonRes = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(searchQuery)}&limit=1`);
+      const photonData = await photonRes.json();
 
-      if (data && data.length > 0) {
-        setLocationData((prev) => ({
-          ...prev,
-          latitude: parseFloat(data[0].lat),
-          longitude: parseFloat(data[0].lon),
-        }));
-      } else {
-        alert("Exact street not found. Please try zooming and clicking on the map manually.");
+      if (photonData.features?.length > 0) {
+        const [lon, lat] = photonData.features[0].geometry.coordinates;
+        setLocationData(prev => ({ ...prev, latitude: lat, longitude: lon }));
+        setIsGeocoding(false);
+        return;
       }
+
+      // 2. Try Nominatim (Fallback for Streets/Addresses)
+      const nominatimRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`);
+      const nominatimData = await nominatimRes.json();
+
+      if (nominatimData?.length > 0) {
+        setLocationData(prev => ({ 
+          ...prev, 
+          latitude: parseFloat(nominatimData[0].lat), 
+          longitude: parseFloat(nominatimData[0].lon) 
+        }));
+        setIsGeocoding(false);
+        return;
+      }
+
+      // 3. Last Resort: Move to City Center
+      const cityQuery = `${locationData.zone}, ${locationData.country}`;
+      const cityRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityQuery)}&limit=1`);
+      const cityData = await cityRes.json();
+
+      if (cityData?.length > 0) {
+        setLocationData(prev => ({ 
+          ...prev, 
+          latitude: parseFloat(cityData[0].lat), 
+          longitude: parseFloat(cityData[0].lon) 
+        }));
+        alert("Exact building not found, but we've centered the map on your city. Please tap your location manually.");
+      } else {
+        alert("Location not found. Please try manually selecting your area on the map.");
+      }
+
     } catch (err) {
       console.error("Geocoding failed:", err);
+      alert("Search service temporarily unavailable.");
     } finally {
       setIsGeocoding(false);
     }
   };
 
-  // -----------------------------------------------------------------
-  // 📍 REVERSE GEOCODING (Map Click -> Form Auto Fill)
-  // -----------------------------------------------------------------
+  // 📍 Reverse Geocoding for Map Taps
   const handleMapTap = async (lat: number, lng: number) => {
     setIsGeocoding(true);
     try {
-      // Set pin instantly for good UX
       setLocationData((prev) => ({ ...prev, latitude: lat, longitude: lng }));
-
-      // Fetch Address data
       const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
       const data = await response.json();
 
-      if (data && data.address) {
-        const address = data.address;
-        // Construct the best possible street address from reverse geocoding
-        const newStreet = address.road || address.neighbourhood || address.suburb || address.village || locationData.streetAddress;
-        const newZip = address.postcode || locationData.zipCode;
-        
+      if (data?.address) {
+        const addr = data.address;
         setLocationData((prev) => ({
           ...prev,
-          streetAddress: newStreet,
-          zipCode: newZip,
-          // Ensure City and State lock to map's data if available (optional, but good for accuracy)
+          streetAddress: addr.road || addr.neighbourhood || addr.suburb || prev.streetAddress,
+          zipCode: addr.postcode || prev.zipCode
         }));
       }
     } catch (err) {
@@ -98,7 +119,6 @@ export default function LocationStep({ locationData, setLocationData }: Location
     }
   };
 
-  // Clean State Handlers (Zero-State lock logic)
   const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedIso = e.target.value;
     const countryObj = countries.find((c) => c.isoCode === selectedIso);
@@ -107,7 +127,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
       country: countryObj ? countryObj.name : "",
       countryIso: selectedIso,
       currency: countryObj ? countryObj.currency : "",
-      province: "", provinceIso: "", zone: "", streetAddress: "", latitude: 0, longitude: 0 // Reset everything
+      province: "", provinceIso: "", zone: "", streetAddress: "", latitude: 0, longitude: 0
     });
   };
 
@@ -174,13 +194,12 @@ export default function LocationStep({ locationData, setLocationData }: Location
         </div>
       </div>
 
-      {/* Street Address & Search Button (NO MORE ON-BLUR) */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-end">
         <div className="md:col-span-6">
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">Street Address</label>
           <input 
             type="text" 
-            placeholder="e.g. Near Cadet College" 
+            placeholder="e.g. Behram Medical Center" 
             value={locationData.streetAddress} 
             onChange={(e) => setLocationData({ ...locationData, streetAddress: e.target.value })}
             className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500"
@@ -197,7 +216,6 @@ export default function LocationStep({ locationData, setLocationData }: Location
           />
         </div>
         <div className="md:col-span-3">
-          {/* 🔥 EXPLICIT SEARCH BUTTON */}
           <button 
             onClick={handleSearchLocation} 
             disabled={isGeocoding || !locationData.streetAddress}
@@ -209,7 +227,6 @@ export default function LocationStep({ locationData, setLocationData }: Location
         </div>
       </div>
 
-      {/* Map Radar Layout - Zero State Protected */}
       <div className="space-y-3 pt-4 border-t border-gray-100">
         <div className="flex justify-between items-center">
           <label className="text-sm font-bold text-gray-900 flex items-center gap-1.5 uppercase tracking-wide">
@@ -221,7 +238,6 @@ export default function LocationStep({ locationData, setLocationData }: Location
                   <Loader2 className="w-3.5 h-3.5 animate-spin" /> Syncing Coordinates...
                 </span>
              )}
-             {/* 📺 FULL SCREEN EXPAND BUTTON */}
              {locationData.countryIso && (
                 <button 
                   onClick={() => setIsFullscreen(true)}
@@ -233,7 +249,6 @@ export default function LocationStep({ locationData, setLocationData }: Location
           </div>
         </div>
 
-        {/* Dynamic Wrapper: Normal View vs Fullscreen View */}
         {!locationData.countryIso ? (
            <div className="w-full h-[400px] rounded-2xl bg-gray-50 border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400">
               <Globe className="w-10 h-10 mb-2 opacity-50" />
@@ -244,19 +259,17 @@ export default function LocationStep({ locationData, setLocationData }: Location
               ? "fixed inset-0 z-[9999] bg-white flex flex-col p-4 md:p-8 shadow-2xl" 
               : "w-full h-[400px] rounded-2xl overflow-hidden border border-gray-200 shadow-inner relative z-10"}
            >
-              {/* Fullscreen Header */}
               {isFullscreen && (
                 <div className="flex justify-between items-center mb-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                   <div>
                     <h3 className="font-bold text-lg">Select Exact Location</h3>
-                    <p className="text-sm text-gray-500">Tap anywhere on the map to drop the pin and auto-fill address.</p>
+                    <p className="text-sm text-gray-500">Tap anywhere on the map to drop the pin.</p>
                   </div>
                   <button onClick={() => setIsFullscreen(false)} className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 flex gap-2 items-center font-bold">
                     <X className="w-5 h-5" /> Close Map
                   </button>
                 </div>
               )}
-              
               <div className="flex-1 rounded-xl overflow-hidden">
                 <ClinicMap 
                   lat={locationData.latitude} 
