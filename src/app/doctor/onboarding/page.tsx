@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -22,9 +21,6 @@ const stepLabels = [
   "Consultation", "Availability", "Public Profile", "Documents", "Review"
 ];
 
-// -------------------------------------------------------------
-// 🟢 STRICT INTERFACES FOR 100% TYPE SAFETY (Fixes all Build Errors)
-// -------------------------------------------------------------
 interface BasicInfoState {
   clinicName: string; doctorName: string; specialization: string; 
   customSpecialization: string; qualification: string; experienceYears: string; registrationNumber: string;
@@ -41,7 +37,7 @@ interface ClinicDetailsState {
 interface ConsultationState {
   currency: string;
   consultationFee: number;
-  slotSizeMinutes: "15" | "30" | "45" | "60"; // 🔥 FIXED: Strict Union Type
+  slotSizeMinutes: "15" | "30" | "45" | "60"; 
 }
 
 interface AvailabilityState {
@@ -80,9 +76,10 @@ export default function DoctorOnboardingPage() {
 
   const [contact, setContact] = useState<ContactState>({ mobile: "", email: "", website: "", facebook: "", instagram: "", linkedin: "", whatsapp: "" });
 
-  const [location, setLocation] = useState<LocationState>({
+  // 🔥 FIXED: Added 'city' here so ReviewStep can map it correctly instead of showing N/A
+  const [location, setLocation] = useState<LocationState & { city: string }>({
     country: "Pakistan", countryIso: "PK", province: "Khyber Pakhtunkhwa", provinceIso: "PK-KP",
-    zone: "Kohat", streetAddress: "", zipCode: "", latitude: 33.5889, longitude: 71.4429, currency: "PKR",
+    zone: "Kohat", city: "Kohat", streetAddress: "", zipCode: "", latitude: 33.5889, longitude: 71.4429, currency: "PKR",
   });
 
   const [clinicDetails, setClinicDetails] = useState<ClinicDetailsState>({
@@ -157,6 +154,54 @@ export default function DoctorOnboardingPage() {
     }
   };
 
+  // -------------------------------------------------------------
+  // 🟢 DATABASE INSERTION & REDIRECTION HANDLER (The Major Fix)
+  // -------------------------------------------------------------
+  const handleFinalizeSubmission = async () => {
+    setSaving(true);
+    setGlobalError(null);
+
+    const payload = {
+      basicInfo,
+      contact,
+      location,
+      clinicDetails,
+      consultation,
+      availability,
+      publicProfile,
+      documents
+    };
+
+    try {
+      console.log("Sending Payload Data:", payload);
+
+      // Trigger your onboarding endpoint safely
+      const response = await fetch("/api/doctor/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server execution crashed with status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        localStorage.removeItem("onboarding_v1"); // Clear cache upon success
+        router.push("/doctor/dashboard");
+      } else {
+        setGlobalError(result.error || "Failed to update database profile setup.");
+      }
+    } catch (err: any) {
+      console.error("Safely intercepted submit crash:", err);
+      setGlobalError(err.message || "Network exception or API compilation failure occurred.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const renderCurrentStep = () => {
     switch (step) {
       case 1: return <BasicInfoStep data={basicInfo} onChange={(u: any) => setBasicInfo(p => ({ ...p, ...u }))} errors={errors} />;
@@ -177,6 +222,14 @@ export default function DoctorOnboardingPage() {
   return (
     <div className="min-h-screen bg-gray-50/50 py-10 px-4">
       <div className="max-w-4xl mx-auto space-y-6">
+        
+        {/* Banner Alert for Server/Global Errors */}
+        {globalError && (
+          <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-semibold">
+            ⚠️ Error: {globalError}
+          </div>
+        )}
+
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Onboarding Matrix</h1>
@@ -190,11 +243,36 @@ export default function DoctorOnboardingPage() {
         </div>
 
         <div className="flex justify-between pt-4">
-          <button onClick={() => navigateStep("prev")} disabled={step === 1} className="px-6 py-3 bg-white border border-gray-200 rounded-xl font-bold">Back</button>
+          <button 
+            onClick={() => navigateStep("prev")} 
+            disabled={step === 1 || saving} 
+            className="px-6 py-3 bg-white border border-gray-200 rounded-xl font-bold disabled:opacity-50"
+          >
+            Back
+          </button>
+          
           {step < 9 ? (
-            <button onClick={() => navigateStep("next")} className="px-8 py-3 bg-primary-600 text-white rounded-xl font-bold">Continue</button>
+            <button 
+              onClick={() => navigateStep("next")} 
+              className="px-8 py-3 bg-primary-600 text-white rounded-xl font-bold"
+            >
+              Continue
+            </button>
           ) : (
-            <button className="px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold">Finalize</button>
+            /* 🔥 FIXED: Added real handleFinalizeSubmission execution and loading state */
+            <button 
+              onClick={handleFinalizeSubmission}
+              disabled={saving}
+              className="px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold flex items-center gap-2 disabled:bg-emerald-700"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" /> Inserting DB...
+                </>
+              ) : (
+                "Finalize"
+              )}
+            </button>
           )}
         </div>
       </div>
