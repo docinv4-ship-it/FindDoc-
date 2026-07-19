@@ -151,7 +151,7 @@ export default function DoctorOnboardingPage() {
   };
 
   // -------------------------------------------------------------
-  // 🟢 DIRECT CLIENT-SIDE DB INSERTION (100% SCHEMA MATCHED)
+  // 🟢 DIRECT CLIENT-SIDE DB INSERTION (100% SCHEMA & CONFLICT MATCHED)
   // -------------------------------------------------------------
   const handleFinalizeSubmission = async () => {
     setSaving(true);
@@ -165,55 +165,53 @@ export default function DoctorOnboardingPage() {
         throw new Error("Your session has expired. Please log in again.");
       }
 
-      // 2. Exact Mapping matching the strict schema rules
+      // 2. Upsert targeting user_id explicitly to override unique constraint collisions
       const { error: dbError } = await supabase
         .from("doctors")
-        .upsert({
-          // Keys Required (is_nullable: NO)
-          id: user.id,            
-          user_id: user.id,       
-          full_name: basicInfo.doctorName || "Doctor Name", // 🟢 FIXED: Required Column Map
-          email: contact.email || user.email || "doctor@clinic.com", // 🟢 FIXED: Required Column Map
-          specialization: basicInfo.specialization || "General Medicine", // 🟢 FIXED: Required Column Map
-          
-          // Optional Columns Map matching database types
-          doctor_name: basicInfo.doctorName || "",
-          clinic_name: basicInfo.clinicName || "",
-          qualification: basicInfo.qualification || "",
-          experience_years: parseInt(basicInfo.experienceYears) || 0, // 🟢 FIXED: String parse to Integer
-          registration_number: basicInfo.registrationNumber || "",
-          custom_specialization: basicInfo.customSpecialization || "",
-          
-          // Contact & Socials Info
-          mobile: contact.mobile || "",
-          phone: contact.mobile || "",
-          facebook_url: contact.facebook || null,
-          instagram_url: contact.instagram || null,
-          linkedin_url: contact.linkedin || null,
-          whatsapp_number: contact.whatsapp || null,
-          website_url: contact.website || null,
+        .upsert(
+          {
+            // We omit the primary key 'id' so postgres handles it on true inserts, 
+            // and targets 'user_id' safely during existing row conflicts.
+            user_id: user.id,       
+            full_name: basicInfo.doctorName || "Doctor Name", 
+            email: contact.email || user.email || "doctor@clinic.com", 
+            specialization: basicInfo.specialization || "General Medicine", 
+            
+            doctor_name: basicInfo.doctorName || "",
+            clinic_name: basicInfo.clinicName || "",
+            qualification: basicInfo.qualification || "",
+            experience_years: parseInt(basicInfo.experienceYears) || 0, 
+            registration_number: basicInfo.registrationNumber || "",
+            custom_specialization: basicInfo.customSpecialization || "",
+            
+            mobile: contact.mobile || "",
+            phone: contact.mobile || "",
+            facebook_url: contact.facebook || null,
+            instagram_url: contact.instagram || null,
+            linkedin_url: contact.linkedin || null,
+            whatsapp_number: contact.whatsapp || null,
+            website_url: contact.website || null,
 
-          // Media Arrays and Strings
-          profile_image_url: clinicDetails.logoUrl || null,
-          cover_image_url: clinicDetails.coverImageUrl || null,
-          bio: publicProfile.bio || "",
-          languages_spoken: clinicDetails.languages || [],
-          services_offered: publicProfile.services || [],
-          
-          // Complex Configurations JSONB
-          location_data: { ...location, city: location.zone }, 
-          consultation_fee: consultation.consultationFee || 0,
-          slot_size_minutes: consultation.slotSizeMinutes || "30",
-          availability_schedule: availability.schedule || [],
-          clinic_details: clinicDetails || {},
-          public_profile: publicProfile || {},
-          documents: documents || {},
-          
-          // Status Flags & Trackers
-          is_onboarded: true, // Onboarding completes here
-          is_verified: false,
-          updated_at: new Date().toISOString(),
-        });
+            profile_image_url: clinicDetails.logoUrl || null,
+            cover_image_url: clinicDetails.coverImageUrl || null,
+            bio: publicProfile.bio || "",
+            languages_spoken: clinicDetails.languages || [],
+            services_offered: publicProfile.services || [],
+            
+            location_data: { ...location, city: location.zone }, 
+            consultation_fee: consultation.consultationFee || 0,
+            slot_size_minutes: consultation.slotSizeMinutes || "30",
+            availability_schedule: availability.schedule || [],
+            clinic_details: clinicDetails || {},
+            public_profile: publicProfile || {},
+            documents: documents || {},
+            
+            is_onboarded: true, 
+            is_verified: false,
+            updated_at: new Date().toISOString(),
+          }, 
+          { onConflict: 'user_id' } // 🔴 THE ABSOLUTE CRITICAL FIX: Tells PG to update if user_id matches!
+        );
 
       if (dbError) throw dbError;
 
