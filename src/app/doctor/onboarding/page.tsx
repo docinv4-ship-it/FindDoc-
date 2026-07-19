@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Loader2, Check, ChevronLeft, ChevronRight, MapPin } from "lucide-react";
+import { Loader2, ChevronLeft, MapPin } from "lucide-react";
 
-// --- IMPORTING ALL STEPS ---
+// --- IMPORTING STEPS (Step 9 Review Removed) ---
 import BasicInfoStep from "@/components/onboarding/BasicInfoStep";
 import ContactStep from "@/components/onboarding/ContactStep"; 
 import LocationStep, { LocationState } from "@/components/onboarding/LocationStep";
@@ -14,11 +14,10 @@ import ConsultationStep from "@/components/onboarding/ConsultationStep";
 import AvailabilityStep from "@/components/onboarding/AvailabilityStep";
 import PublicProfileStep from "@/components/onboarding/PublicProfileStep"; 
 import DocumentsStep from "@/components/onboarding/DocumentsStep"; 
-import ReviewStep from "@/components/onboarding/ReviewStep";
 
 const stepLabels = [
   "Basic Info", "Contact", "Location", "Clinic Details", 
-  "Consultation", "Availability", "Public Profile", "Documents", "Review"
+  "Consultation", "Availability", "Public Profile", "Documents"
 ];
 
 interface BasicInfoState {
@@ -64,31 +63,20 @@ export default function DoctorOnboardingPage() {
   const [globalError, setGlobalError] = useState<string | null>(null);
 
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = createClient(); // 🟢 Uses your working client config
 
-  // -------------------------------------------------------------
-  // 🟢 INITIALIZED STATES WITH EXPLICIT TYPES (Reverted to base strict types)
-  // -------------------------------------------------------------
+  // --- STATES ---
   const [basicInfo, setBasicInfo] = useState<BasicInfoState>({
     clinicName: "", doctorName: "", specialization: "", 
     customSpecialization: "", qualification: "", experienceYears: "", registrationNumber: "",
   });
-
   const [contact, setContact] = useState<ContactState>({ mobile: "", email: "", website: "", facebook: "", instagram: "", linkedin: "", whatsapp: "" });
-
   const [location, setLocation] = useState<LocationState>({
     country: "Pakistan", countryIso: "PK", province: "Khyber Pakhtunkhwa", provinceIso: "PK-KP",
     zone: "Kohat", streetAddress: "", zipCode: "", latitude: 33.5889, longitude: 71.4429, currency: "PKR",
   });
-
-  const [clinicDetails, setClinicDetails] = useState<ClinicDetailsState>({
-    about: "", logoUrl: "", coverImageUrl: "", images: [], languages: [],
-  });
-
-  const [consultation, setConsultation] = useState<ConsultationState>({
-    currency: "PKR", consultationFee: 0, slotSizeMinutes: "30",
-  });
-
+  const [clinicDetails, setClinicDetails] = useState<ClinicDetailsState>({ about: "", logoUrl: "", coverImageUrl: "", images: [], languages: [] });
+  const [consultation, setConsultation] = useState<ConsultationState>({ currency: "PKR", consultationFee: 0, slotSizeMinutes: "30" });
   const [availability, setAvailability] = useState<AvailabilityState>({
     schedule: [
       { day: "Monday", isAvailable: true, slots: [{ id: "m-1", startTime: "09:00", endTime: "17:00" }] },
@@ -100,25 +88,17 @@ export default function DoctorOnboardingPage() {
       { day: "Sunday", isAvailable: false, slots: [] },
     ]
   });
+  const [publicProfile, setPublicProfile] = useState<PublicProfileState>({ profileSlug: "", bio: "", services: [], tags: [] });
+  const [documents, setDocuments] = useState<DocumentsState>({ medicalLicense: "", idProof: "", clinicRegistration: "" });
 
-  const [publicProfile, setPublicProfile] = useState<PublicProfileState>({ 
-    profileSlug: "", bio: "", services: [], tags: [] 
-  });
-
-  const [documents, setDocuments] = useState<DocumentsState>({
-    medicalLicense: "", idProof: "", clinicRegistration: "",
-  });
-
-  // -------------------------------------------------------------
-  // 🟢 AUTO-SAVE & RECOVERY SYSTEM
-  // -------------------------------------------------------------
+  // --- AUTO-SAVE & RECOVERY ---
   useEffect(() => {
     const init = async () => {
       const saved = localStorage.getItem("onboarding_v1");
       if (saved) {
         try {
           const p = JSON.parse(saved);
-          if (p.step) setStep(p.step);
+          if (p.step && p.step <= 8) setStep(p.step);
           if (p.basicInfo) setBasicInfo(p.basicInfo);
           if (p.contact) setContact(p.contact);
           if (p.location) setLocation(p.location);
@@ -140,62 +120,63 @@ export default function DoctorOnboardingPage() {
         step, basicInfo, contact, location, clinicDetails, consultation, availability, publicProfile, documents
       }));
     }
-  }, [step, basicInfo, contact, location, clinicDetails, consultation, availability, publicProfile, documents]);
+  }, [step, basicInfo, contact, location, clinicDetails, consultation, availability, publicProfile, documents, loading]);
 
-  // -------------------------------------------------------------
-  // 🟢 STEP NAVIGATOR
-  // -------------------------------------------------------------
   const navigateStep = (direction: "next" | "prev") => {
     if (direction === "next") {
-      setStep(prev => prev + 1);
+      setStep(prev => Math.min(prev + 1, 8));
     } else {
       setStep(prev => Math.max(prev - 1, 1));
     }
   };
 
   // -------------------------------------------------------------
-  // 🟢 DATABASE INSERTION & REDIRECTION HANDLER
+  // 🟢 DIRECT CLIENT-SIDE DB INSERTION (Bypasses API Router Entirely)
   // -------------------------------------------------------------
   const handleFinalizeSubmission = async () => {
     setSaving(true);
     setGlobalError(null);
 
-    // Form real full database schema snapshot with city parameter injected
-    const payload = {
-      basicInfo,
-      contact,
-      location: { ...location, city: location.zone },
-      clinicDetails,
-      consultation,
-      availability,
-      publicProfile,
-      documents
-    };
-
     try {
-      console.log("Sending Payload Data:", payload);
-
-      const response = await fetch("/api/doctor/onboarding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server execution crashed with status: ${response.status}`);
+      // 1. Get authenticated user session
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !user) {
+        throw new Error("Your session has expired. Please log in again.");
       }
 
-      const result = await response.json();
+      // 2. Direct Upsert to Supabase 'doctors' table
+      const { error: dbError } = await supabase
+        .from("doctors")
+        .upsert({
+          id: user.id,
+          doctor_name: basicInfo.doctorName || "",
+          clinic_name: basicInfo.clinicName || "",
+          specialization: basicInfo.specialization || "",
+          qualification: basicInfo.qualification || "",
+          experience_years: basicInfo.experienceYears || "",
+          registration_number: basicInfo.registrationNumber || "",
+          mobile: contact.mobile || "",
+          email: contact.email || "",
+          location_data: { ...location, city: location.zone }, 
+          consultation_fee: consultation.consultationFee || 0,
+          slot_size_minutes: consultation.slotSizeMinutes || "30",
+          availability_schedule: availability.schedule || [],
+          clinic_details: clinicDetails || {},
+          public_profile: publicProfile || {},
+          documents: documents || {},
+          updated_at: new Date().toISOString(),
+        });
 
-      if (result.success) {
-        localStorage.removeItem("onboarding_v1");
-        router.push("/doctor/dashboard");
-      } else {
-        setGlobalError(result.error || "Failed to update database profile setup.");
-      }
+      if (dbError) throw dbError;
+
+      // 3. Clear Cache & Redirect
+      localStorage.removeItem("onboarding_v1");
+      router.push("/doctor/dashboard");
+
     } catch (err: any) {
-      console.error("Safely intercepted submit crash:", err);
-      setGlobalError(err.message || "Network exception or API compilation failure occurred.");
+      console.error("Direct Insertion Failed:", err);
+      setGlobalError(err.message || "Failed to save data directly to database.");
     } finally {
       setSaving(false);
     }
@@ -205,13 +186,12 @@ export default function DoctorOnboardingPage() {
     switch (step) {
       case 1: return <BasicInfoStep data={basicInfo} onChange={(u: any) => setBasicInfo(p => ({ ...p, ...u }))} errors={errors} />;
       case 2: return <ContactStep data={contact} onChange={(u: any) => setContact(p => ({ ...p, ...u }))} errors={errors} />;
-      case 3: return <LocationStep locationData={location} setLocationData={setLocation} />; // 🟢 FIXED: Prop match error gone
+      case 3: return <LocationStep locationData={location} setLocationData={setLocation} />; 
       case 4: return <ClinicDetailsStep data={clinicDetails} onChange={(u: any) => setClinicDetails(p => ({ ...p, ...u }))} errors={errors} />;
       case 5: return <ConsultationStep data={consultation} onChange={(u: any) => setConsultation(p => ({ ...p, ...u }))} errors={errors} />;
       case 6: return <AvailabilityStep data={availability} onChange={(u: any) => setAvailability(p => ({ ...p, ...u }))} errors={errors} />;
       case 7: return <PublicProfileStep data={publicProfile} onChange={(u: any) => setPublicProfile(p => ({ ...p, ...u }))} errors={errors} />;
       case 8: return <DocumentsStep data={documents} onChange={(u: any) => setDocuments(p => ({ ...p, ...u }))} errors={errors} />;
-      case 9: return <ReviewStep globalState={{ group1: { basicInfo, location: { ...location, city: location.zone }, contact }, group2: { clinicDetails, consultation }, group3: { availability, publicProfile, documents } }} onNavigateToStep={setStep} />; // 🟢 FIXED: Safe on-the-fly execution injection
       default: return <div>Step Error</div>;
     }
   };
@@ -231,7 +211,7 @@ export default function DoctorOnboardingPage() {
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Onboarding Matrix</h1>
-            <p className="text-sm text-gray-500">Step {step} of 9: {stepLabels[step - 1]}</p>
+            <p className="text-sm text-gray-500">Step {step} of 8: {stepLabels[step - 1]}</p>
           </div>
           <MapPin className="text-primary-500 bg-primary-50 p-2 rounded-lg" />
         </div>
@@ -249,7 +229,7 @@ export default function DoctorOnboardingPage() {
             Back
           </button>
           
-          {step < 9 ? (
+          {step < 8 ? (
             <button 
               onClick={() => navigateStep("next")} 
               className="px-8 py-3 bg-primary-600 text-white rounded-xl font-bold"
@@ -264,10 +244,10 @@ export default function DoctorOnboardingPage() {
             >
               {saving ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" /> Inserting DB...
+                  <Loader2 className="w-5 h-5 animate-spin" /> Saving to Database...
                 </>
               ) : (
-                "Finalize"
+                "Finalize & Submit"
               )}
             </button>
           )}
