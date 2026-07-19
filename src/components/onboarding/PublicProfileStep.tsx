@@ -14,17 +14,27 @@ export default function PublicProfileStep({ data, onChange, errors }: PublicProf
   const [serviceInput, setServiceInput] = useState("");
   const [tagInput, setTagInput] = useState("");
 
+  // Safe fallbacks to prevent crash if parent data is missing fields
+  const currentBio = data?.bio || "";
+  const servicesList = data?.services || [];
+  const tagsList = data?.tags || [];
+
   const formatSlug = (val: string) => val.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
   const addArrayItem = (field: "services" | "tags", value: string, setter: React.Dispatch<React.SetStateAction<string>>) => {
     const trimmed = value.trim();
-    if (!trimmed || data[field].includes(trimmed)) return;
-    onChange({ [field]: [...data[field], trimmed] });
+    if (!trimmed) return;
+    
+    const currentArray = field === "services" ? servicesList : tagsList;
+    if (currentArray.includes(trimmed)) return;
+
+    onChange({ [field]: [...currentArray, trimmed] });
     setter("");
   };
 
   const removeArrayItem = (field: "services" | "tags", index: number) => {
-    onChange({ [field]: data[field].filter((_, i) => i !== index) });
+    const currentArray = field === "services" ? servicesList : tagsList;
+    onChange({ [field]: currentArray.filter((_, i) => i !== index) });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, field: "services" | "tags", value: string, setter: React.Dispatch<React.SetStateAction<string>>) => {
@@ -51,7 +61,7 @@ export default function PublicProfileStep({ data, onChange, errors }: PublicProf
             </span>
             <input
               type="text"
-              value={data.profileSlug}
+              value={data?.profileSlug || ""}
               onChange={(e) => onChange({ profileSlug: formatSlug(e.target.value) })}
               className={`flex-1 block w-full min-w-0 px-3 py-2.5 rounded-none rounded-r-lg border focus:ring-2 transition-all text-sm ${
                 errors.profileSlug ? "border-red-500 focus:ring-red-200" : "border-gray-200 focus:ring-primary-500"
@@ -66,7 +76,7 @@ export default function PublicProfileStep({ data, onChange, errors }: PublicProf
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">Professional Biography</label>
           <textarea
-            value={data.bio}
+            value={currentBio}
             onChange={(e) => onChange({ bio: e.target.value })}
             rows={4}
             className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-all text-sm ${
@@ -80,8 +90,9 @@ export default function PublicProfileStep({ data, onChange, errors }: PublicProf
             ) : (
               <p className="text-xs text-gray-400">Minimum 50 characters required.</p>
             )}
-            <span className={`text-xs ${data.bio.length < 50 ? 'text-amber-500' : 'text-emerald-500'}`}>
-              {data.bio.length}/1000
+            {/* 🟢 FIXED: Safe string length tracking without risk of undefined crash */}
+            <span className={`text-xs ${currentBio.length < 50 ? 'text-amber-500' : 'text-emerald-500'}`}>
+              {currentBio.length}/1000
             </span>
           </div>
         </div>
@@ -103,7 +114,8 @@ export default function PublicProfileStep({ data, onChange, errors }: PublicProf
             <button type="button" onClick={() => addArrayItem("services", serviceInput, setServiceInput)} className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800">Add</button>
           </div>
           <div className="flex flex-wrap gap-2">
-            {data.services.map((svc, idx) => (
+            {/* 🟢 FIXED: Safe array mapping */}
+            {servicesList.map((svc, idx) => (
               <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-gray-200 text-sm text-gray-700 rounded-full shadow-sm">
                 {svc}
                 <button type="button" onClick={() => removeArrayItem("services", idx)} className="text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
@@ -130,7 +142,8 @@ export default function PublicProfileStep({ data, onChange, errors }: PublicProf
             <button type="button" onClick={() => addArrayItem("tags", tagInput, setTagInput)} className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800">Add</button>
           </div>
           <div className="flex flex-wrap gap-2">
-            {data.tags.map((tag, idx) => (
+            {/* 🟢 FIXED: Safe array mapping */}
+            {tagsList.map((tag, idx) => (
               <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1 bg-primary-50 border border-primary-100 text-sm text-primary-700 rounded-full">
                 #{tag}
                 <button type="button" onClick={() => removeArrayItem("tags", idx)} className="text-primary-400 hover:text-primary-600"><X className="w-3.5 h-3.5" /></button>
