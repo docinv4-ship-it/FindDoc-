@@ -21,16 +21,31 @@ const stepLabels = [
 ];
 
 interface BasicInfoState {
-  clinicName: string; doctorName: string; specialization: string; 
-  customSpecialization: string; qualification: string; experienceYears: string; registrationNumber: string;
+  clinicName: string; 
+  doctorName: string; 
+  specialization: string; 
+  customSpecialization: string; 
+  qualification: string; 
+  experienceYears: string; 
+  registrationNumber: string;
 }
 
 interface ContactState {
-  mobile: string; email: string; website: string; facebook: string; instagram: string; linkedin: string; whatsapp: string;
+  mobile: string; 
+  email: string; 
+  website: string; 
+  facebook: string; 
+  instagram: string; 
+  linkedin: string; 
+  whatsapp: string;
 }
 
 interface ClinicDetailsState {
-  about: string; logoUrl: string; coverImageUrl: string; images: string[]; languages: string[];
+  about: string; 
+  logoUrl: string; 
+  coverImageUrl: string; 
+  images: string[]; 
+  languages: string[];
 }
 
 interface ConsultationState {
@@ -48,11 +63,16 @@ interface AvailabilityState {
 }
 
 interface PublicProfileState {
-  profileSlug: string; bio: string; services: string[]; tags: string[];
+  profileSlug: string; 
+  bio: string; 
+  services: string[]; 
+  tags: string[];
 }
 
 export interface DocumentsState {
-  medicalLicense: string; idProof: string; clinicRegistration?: string;
+  medicalLicense: string; 
+  idProof: string; 
+  clinicRegistration?: string;
 }
 
 export default function DoctorOnboardingPage() {
@@ -131,7 +151,7 @@ export default function DoctorOnboardingPage() {
   };
 
   // -------------------------------------------------------------
-  // 🟢 DIRECT CLIENT-SIDE DB INSERTION (Bypasses API Router Entirely)
+  // 🟢 DIRECT CLIENT-SIDE DB INSERTION (With Fixed User ID Fields)
   // -------------------------------------------------------------
   const handleFinalizeSubmission = async () => {
     setSaving(true);
@@ -140,16 +160,17 @@ export default function DoctorOnboardingPage() {
     try {
       // 1. Get authenticated user session
       const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
+
       if (authError || !user) {
         throw new Error("Your session has expired. Please log in again.");
       }
 
-      // 2. Direct Upsert to Supabase 'doctors' table
+      // 2. Direct Upsert to Supabase 'doctors' table (Sending both id and user_id to fully resolve conflicts)
       const { error: dbError } = await supabase
         .from("doctors")
         .upsert({
-          id: user.id,
+          id: user.id,            // Agar primary key column ka naam 'id' hai
+          user_id: user.id,       // 🟢 FIXED: Agar primary key ya reference column 'user_id' hai
           doctor_name: basicInfo.doctorName || "",
           clinic_name: basicInfo.clinicName || "",
           specialization: basicInfo.specialization || "",
@@ -201,7 +222,7 @@ export default function DoctorOnboardingPage() {
   return (
     <div className="min-h-screen bg-gray-50/50 py-10 px-4">
       <div className="max-w-4xl mx-auto space-y-6">
-        
+
         {globalError && (
           <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-semibold">
             ⚠️ Error: {globalError}
@@ -228,7 +249,7 @@ export default function DoctorOnboardingPage() {
           >
             Back
           </button>
-          
+
           {step < 8 ? (
             <button 
               onClick={() => navigateStep("next")} 
