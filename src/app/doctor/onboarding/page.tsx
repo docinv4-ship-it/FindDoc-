@@ -67,7 +67,7 @@ export default function DoctorOnboardingPage() {
   const supabase = createClient();
 
   // -------------------------------------------------------------
-  // 🟢 INITIALIZED STATES WITH EXPLICIT TYPES
+  // 🟢 INITIALIZED STATES WITH EXPLICIT TYPES (Reverted to base strict types)
   // -------------------------------------------------------------
   const [basicInfo, setBasicInfo] = useState<BasicInfoState>({
     clinicName: "", doctorName: "", specialization: "", 
@@ -76,10 +76,9 @@ export default function DoctorOnboardingPage() {
 
   const [contact, setContact] = useState<ContactState>({ mobile: "", email: "", website: "", facebook: "", instagram: "", linkedin: "", whatsapp: "" });
 
-  // 🔥 FIXED: Added 'city' here so ReviewStep can map it correctly instead of showing N/A
-  const [location, setLocation] = useState<LocationState & { city: string }>({
+  const [location, setLocation] = useState<LocationState>({
     country: "Pakistan", countryIso: "PK", province: "Khyber Pakhtunkhwa", provinceIso: "PK-KP",
-    zone: "Kohat", city: "Kohat", streetAddress: "", zipCode: "", latitude: 33.5889, longitude: 71.4429, currency: "PKR",
+    zone: "Kohat", streetAddress: "", zipCode: "", latitude: 33.5889, longitude: 71.4429, currency: "PKR",
   });
 
   const [clinicDetails, setClinicDetails] = useState<ClinicDetailsState>({
@@ -155,16 +154,17 @@ export default function DoctorOnboardingPage() {
   };
 
   // -------------------------------------------------------------
-  // 🟢 DATABASE INSERTION & REDIRECTION HANDLER (The Major Fix)
+  // 🟢 DATABASE INSERTION & REDIRECTION HANDLER
   // -------------------------------------------------------------
   const handleFinalizeSubmission = async () => {
     setSaving(true);
     setGlobalError(null);
 
+    // Form real full database schema snapshot with city parameter injected
     const payload = {
       basicInfo,
       contact,
-      location,
+      location: { ...location, city: location.zone },
       clinicDetails,
       consultation,
       availability,
@@ -175,7 +175,6 @@ export default function DoctorOnboardingPage() {
     try {
       console.log("Sending Payload Data:", payload);
 
-      // Trigger your onboarding endpoint safely
       const response = await fetch("/api/doctor/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -189,7 +188,7 @@ export default function DoctorOnboardingPage() {
       const result = await response.json();
 
       if (result.success) {
-        localStorage.removeItem("onboarding_v1"); // Clear cache upon success
+        localStorage.removeItem("onboarding_v1");
         router.push("/doctor/dashboard");
       } else {
         setGlobalError(result.error || "Failed to update database profile setup.");
@@ -206,13 +205,13 @@ export default function DoctorOnboardingPage() {
     switch (step) {
       case 1: return <BasicInfoStep data={basicInfo} onChange={(u: any) => setBasicInfo(p => ({ ...p, ...u }))} errors={errors} />;
       case 2: return <ContactStep data={contact} onChange={(u: any) => setContact(p => ({ ...p, ...u }))} errors={errors} />;
-      case 3: return <LocationStep locationData={location} setLocationData={setLocation} />;
+      case 3: return <LocationStep locationData={location} setLocationData={setLocation} />; // 🟢 FIXED: Prop match error gone
       case 4: return <ClinicDetailsStep data={clinicDetails} onChange={(u: any) => setClinicDetails(p => ({ ...p, ...u }))} errors={errors} />;
       case 5: return <ConsultationStep data={consultation} onChange={(u: any) => setConsultation(p => ({ ...p, ...u }))} errors={errors} />;
       case 6: return <AvailabilityStep data={availability} onChange={(u: any) => setAvailability(p => ({ ...p, ...u }))} errors={errors} />;
       case 7: return <PublicProfileStep data={publicProfile} onChange={(u: any) => setPublicProfile(p => ({ ...p, ...u }))} errors={errors} />;
       case 8: return <DocumentsStep data={documents} onChange={(u: any) => setDocuments(p => ({ ...p, ...u }))} errors={errors} />;
-      case 9: return <ReviewStep globalState={{ group1: { basicInfo, location, contact }, group2: { clinicDetails, consultation }, group3: { availability, publicProfile, documents } }} onNavigateToStep={setStep} />;
+      case 9: return <ReviewStep globalState={{ group1: { basicInfo, location: { ...location, city: location.zone }, contact }, group2: { clinicDetails, consultation }, group3: { availability, publicProfile, documents } }} onNavigateToStep={setStep} />; // 🟢 FIXED: Safe on-the-fly execution injection
       default: return <div>Step Error</div>;
     }
   };
@@ -223,7 +222,6 @@ export default function DoctorOnboardingPage() {
     <div className="min-h-screen bg-gray-50/50 py-10 px-4">
       <div className="max-w-4xl mx-auto space-y-6">
         
-        {/* Banner Alert for Server/Global Errors */}
         {globalError && (
           <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-semibold">
             ⚠️ Error: {globalError}
@@ -259,7 +257,6 @@ export default function DoctorOnboardingPage() {
               Continue
             </button>
           ) : (
-            /* 🔥 FIXED: Added real handleFinalizeSubmission execution and loading state */
             <button 
               onClick={handleFinalizeSubmission}
               disabled={saving}
