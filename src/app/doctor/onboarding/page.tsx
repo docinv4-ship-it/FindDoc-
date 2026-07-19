@@ -21,6 +21,22 @@ const stepLabels = [
   "Consultation", "Availability", "Public Profile", "Documents", "Review"
 ];
 
+// --- INTERFACES FOR TYPE SAFETY ---
+interface ClinicDetailsState {
+  about: string;
+  logoUrl: string;
+  coverImageUrl: string;
+  images: string[];
+  languages: string[];
+}
+
+interface PublicProfileState {
+  profileSlug: string;
+  bio: string;
+  services: string[];
+  tags: string[];
+}
+
 export interface DocumentsState {
   medicalLicense: string;
   idProof: string;
@@ -38,7 +54,7 @@ export default function DoctorOnboardingPage() {
   const supabase = createClient();
 
   // -------------------------------------------------------------
-  // 🟢 1. FULLY INITIALIZED STATE (Future-Proof: Added missing fields)
+  // 🟢 INITIALIZED STATES WITH EXPLICIT TYPES
   // -------------------------------------------------------------
   const [basicInfo, setBasicInfo] = useState({
     clinicName: "", doctorName: "", specialization: "", 
@@ -52,7 +68,7 @@ export default function DoctorOnboardingPage() {
     zone: "Kohat", streetAddress: "", zipCode: "", latitude: 33.5889, longitude: 71.4429, currency: "PKR",
   });
 
-  const [clinicDetails, setClinicDetails] = useState({
+  const [clinicDetails, setClinicDetails] = useState<ClinicDetailsState>({
     about: "", logoUrl: "", coverImageUrl: "", images: [], languages: [],
   });
 
@@ -62,18 +78,17 @@ export default function DoctorOnboardingPage() {
 
   const [availability, setAvailability] = useState({
     schedule: [
-      { day: "Monday", isAvailable: true, slots: [{ id: "m-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Tuesday", isAvailable: true, slots: [{ id: "t-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Wednesday", isAvailable: true, slots: [{ id: "w-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Thursday", isAvailable: true, slots: [{ id: "th-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Friday", isAvailable: true, slots: [{ id: "f-1", startTime: "09:00", endTime: "13:00" }] },
-      { day: "Saturday", isAvailable: false, slots: [] },
-      { day: "Sunday", isAvailable: false, slots: [] },
+      { day: "Monday" as const, isAvailable: true, slots: [{ id: "m-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Tuesday" as const, isAvailable: true, slots: [{ id: "t-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Wednesday" as const, isAvailable: true, slots: [{ id: "w-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Thursday" as const, isAvailable: true, slots: [{ id: "th-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Friday" as const, isAvailable: true, slots: [{ id: "f-1", startTime: "09:00", endTime: "13:00" }] },
+      { day: "Saturday" as const, isAvailable: false, slots: [] as any[] },
+      { day: "Sunday" as const, isAvailable: false, slots: [] as any[] },
     ]
   });
 
-  // 🔥 FIXED: Added bio and tags to prevent "undefined" crash in Step 7
-  const [publicProfile, setPublicProfile] = useState({ 
+  const [publicProfile, setPublicProfile] = useState<PublicProfileState>({ 
     profileSlug: "", 
     bio: "",
     services: [], 
@@ -87,28 +102,31 @@ export default function DoctorOnboardingPage() {
   });
 
   // -------------------------------------------------------------
-  // 🟢 2. AUTO-SAVE & RECOVERY SYSTEM
+  // 🟢 AUTO-SAVE & RECOVERY SYSTEM
   // -------------------------------------------------------------
   useEffect(() => {
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return router.push("/doctor/login");
-      
-      // Load saved progress from LocalStorage
+      // LocalStorage recovery check
       const saved = localStorage.getItem("onboarding_v1");
       if (saved) {
-        const p = JSON.parse(saved);
-        setBasicInfo(p.basicInfo); setContact(p.contact); setLocation(p.location);
-        setClinicDetails(p.clinicDetails); setConsultation(p.consultation);
-        setAvailability(p.availability); setPublicProfile(p.publicProfile);
-        setDocuments(p.documents); setStep(p.step || 1);
+        try {
+          const p = JSON.parse(saved);
+          if (p.step) setStep(p.step);
+          if (p.basicInfo) setBasicInfo(p.basicInfo);
+          if (p.contact) setContact(p.contact);
+          if (p.location) setLocation(p.location);
+          if (p.clinicDetails) setClinicDetails(p.clinicDetails);
+          if (p.consultation) setConsultation(p.consultation);
+          if (p.availability) setAvailability(p.availability);
+          if (p.publicProfile) setPublicProfile(p.publicProfile);
+          if (p.documents) setDocuments(p.documents);
+        } catch (e) { console.error("Storage corrupt", e); }
       }
       setLoading(false);
     };
     init();
   }, []);
 
-  // Sync to storage on every state change
   useEffect(() => {
     if (!loading) {
       localStorage.setItem("onboarding_v1", JSON.stringify({
@@ -118,18 +136,11 @@ export default function DoctorOnboardingPage() {
   }, [step, basicInfo, contact, location, clinicDetails, consultation, availability, publicProfile, documents]);
 
   // -------------------------------------------------------------
-  // 🟢 3. STEP LOGIC
+  // 🟢 STEP NAVIGATOR
   // -------------------------------------------------------------
-  const validateStep = (s: number): boolean => {
-    setErrors({});
-    let isValid = true;
-    if (s === 1 && !basicInfo.clinicName) { setErrors({ clinicName: "Required" }); isValid = false; }
-    return isValid;
-  };
-
   const navigateStep = (direction: "next" | "prev") => {
     if (direction === "next") {
-      if (validateStep(step)) setStep(prev => prev + 1);
+      setStep(prev => prev + 1);
     } else {
       setStep(prev => Math.max(prev - 1, 1));
     }
@@ -137,20 +148,20 @@ export default function DoctorOnboardingPage() {
 
   const renderCurrentStep = () => {
     switch (step) {
-      case 1: return <BasicInfoStep data={basicInfo as any} onChange={(u) => setBasicInfo(p => ({ ...p, ...u }))} errors={errors} />;
-      case 2: return <ContactStep data={contact as any} onChange={(u) => setContact(p => ({ ...p, ...u }))} errors={errors} />;
+      case 1: return <BasicInfoStep data={basicInfo} onChange={(u) => setBasicInfo(p => ({ ...p, ...u }))} errors={errors} />;
+      case 2: return <ContactStep data={contact} onChange={(u) => setContact(p => ({ ...p, ...u }))} errors={errors} />;
       case 3: return <LocationStep locationData={location} setLocationData={setLocation} />;
-      case 4: return <ClinicDetailsStep data={clinicDetails as any} onChange={(u) => setClinicDetails(p => ({ ...p, ...u }))} errors={errors} />;
-      case 5: return <ConsultationStep data={consultation as any} onChange={(u) => setConsultation(p => ({ ...p, ...u }))} errors={errors} />;
-      case 6: return <AvailabilityStep data={availability as any} onChange={(u) => setAvailability(p => ({ ...p, ...u } as any))} errors={errors} />;
-      case 7: return <PublicProfileStep data={publicProfile as any} onChange={(u) => setPublicProfile(p => ({ ...p, ...u }))} errors={errors} />;
+      case 4: return <ClinicDetailsStep data={clinicDetails} onChange={(u) => setClinicDetails(p => ({ ...p, ...u }))} errors={errors} />;
+      case 5: return <ConsultationStep data={consultation} onChange={(u) => setConsultation(p => ({ ...p, ...u }))} errors={errors} />;
+      case 6: return <AvailabilityStep data={availability} onChange={(u) => setAvailability(p => ({ ...p, ...u }))} errors={errors} />;
+      case 7: return <PublicProfileStep data={publicProfile} onChange={(u) => setPublicProfile(p => ({ ...p, ...u }))} errors={errors} />;
       case 8: return <DocumentsStep data={documents} onChange={(u) => setDocuments(p => ({ ...p, ...u }))} errors={errors} />;
       case 9: return <ReviewStep globalState={{ group1: { basicInfo, location, contact }, group2: { clinicDetails, consultation }, group3: { availability, publicProfile, documents } }} onNavigateToStep={setStep} />;
-      default: return <div>Pending</div>;
+      default: return <div>Step Error</div>;
     }
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-primary-600" /></div>;
 
   return (
     <div className="min-h-screen bg-gray-50/50 py-10 px-4">
@@ -168,11 +179,11 @@ export default function DoctorOnboardingPage() {
         </div>
 
         <div className="flex justify-between pt-4">
-          <button onClick={() => navigateStep("prev")} disabled={step === 1 || saving} className="px-6 py-3 bg-white border border-gray-200 rounded-xl font-bold">Back</button>
+          <button onClick={() => navigateStep("prev")} disabled={step === 1} className="px-6 py-3 bg-white border border-gray-200 rounded-xl font-bold">Back</button>
           {step < 9 ? (
             <button onClick={() => navigateStep("next")} className="px-8 py-3 bg-primary-600 text-white rounded-xl font-bold">Continue</button>
           ) : (
-            <button disabled={saving} className="px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold">Finalize</button>
+            <button className="px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold">Finalize</button>
           )}
         </div>
       </div>
