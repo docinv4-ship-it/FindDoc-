@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -17,13 +16,11 @@ import PublicProfileStep from "@/components/onboarding/PublicProfileStep";
 import DocumentsStep from "@/components/onboarding/DocumentsStep"; 
 import ReviewStep from "@/components/onboarding/ReviewStep";
 
-// Setup Array for Progress Mapping
 const stepLabels = [
   "Basic Info", "Contact", "Location", "Clinic Details", 
   "Consultation", "Availability", "Public Profile", "Documents", "Review"
 ];
 
-// TypeScript Interface for Document Structure to keep Vercel fully stable
 export interface DocumentsState {
   medicalLicense: string;
   idProof: string;
@@ -34,15 +31,14 @@ export default function DoctorOnboardingPage() {
   const [step, setStep] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
-  const [doctorId, setDoctorId] = useState<string | null>(null);
-  const [globalError, setGlobalError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [globalError, setGlobalError] = useState<string | null>(null);
 
   const router = useRouter();
   const supabase = createClient();
 
   // -------------------------------------------------------------
-  // 🟢 1. PERFECTLY ALIGNED STATES
+  // 🟢 1. FULLY INITIALIZED STATE (Future-Proof: Added missing fields)
   // -------------------------------------------------------------
   const [basicInfo, setBasicInfo] = useState({
     clinicName: "", doctorName: "", specialization: "", 
@@ -56,13 +52,7 @@ export default function DoctorOnboardingPage() {
     zone: "Kohat", streetAddress: "", zipCode: "", latitude: 33.5889, longitude: 71.4429, currency: "PKR",
   });
 
-  const [clinicDetails, setClinicDetails] = useState<{
-    about: string;
-    logoUrl: string;
-    coverImageUrl: string;
-    images: string[];
-    languages: string[];
-  }>({
+  const [clinicDetails, setClinicDetails] = useState({
     about: "", logoUrl: "", coverImageUrl: "", images: [], languages: [],
   });
 
@@ -72,22 +62,24 @@ export default function DoctorOnboardingPage() {
 
   const [availability, setAvailability] = useState({
     schedule: [
-      { day: "Monday" as const, isAvailable: true, slots: [{ id: "m-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Tuesday" as const, isAvailable: true, slots: [{ id: "t-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Wednesday" as const, isAvailable: true, slots: [{ id: "w-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Thursday" as const, isAvailable: true, slots: [{ id: "th-1", startTime: "09:00", endTime: "17:00" }] },
-      { day: "Friday" as const, isAvailable: true, slots: [{ id: "f-1", startTime: "09:00", endTime: "13:00" }] },
-      { day: "Saturday" as const, isAvailable: false, slots: [] as { id: string; startTime: string; endTime: string; }[] },
-      { day: "Sunday" as const, isAvailable: false, slots: [] as { id: string; startTime: string; endTime: string; }[] },
+      { day: "Monday", isAvailable: true, slots: [{ id: "m-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Tuesday", isAvailable: true, slots: [{ id: "t-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Wednesday", isAvailable: true, slots: [{ id: "w-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Thursday", isAvailable: true, slots: [{ id: "th-1", startTime: "09:00", endTime: "17:00" }] },
+      { day: "Friday", isAvailable: true, slots: [{ id: "f-1", startTime: "09:00", endTime: "13:00" }] },
+      { day: "Saturday", isAvailable: false, slots: [] },
+      { day: "Sunday", isAvailable: false, slots: [] },
     ]
   });
 
-  const [publicProfile, setPublicProfile] = useState<{ profileSlug: string; services: string[] }>({ 
+  // 🔥 FIXED: Added bio and tags to prevent "undefined" crash in Step 7
+  const [publicProfile, setPublicProfile] = useState({ 
     profileSlug: "", 
-    services: [] 
+    bio: "",
+    services: [], 
+    tags: [] 
   });
 
-  // 🔥 FIXED: Changed from any[] array to exact Object matching the Component specifications
   const [documents, setDocuments] = useState<DocumentsState>({
     medicalLicense: "",
     idProof: "",
@@ -95,50 +87,43 @@ export default function DoctorOnboardingPage() {
   });
 
   // -------------------------------------------------------------
-  // 🟢 2. INITIAL HANDSHAKE & AUTH
+  // 🟢 2. AUTO-SAVE & RECOVERY SYSTEM
   // -------------------------------------------------------------
   useEffect(() => {
-    const initSystem = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return router.push("/doctor/login");
-
-        const { data: doctorData } = await supabase
-          .from("doctors").select("id, is_onboarded").eq("user_id", user.id).maybeSingle();
-
-        if (!doctorData) return router.push("/doctor/signup");
-        if (doctorData.is_onboarded) return router.push("/doctor/dashboard");
-
-        setDoctorId(doctorData.id);
-      } catch (err) {
-        console.error("System Crash: ", err);
-      } finally {
-        setLoading(false);
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return router.push("/doctor/login");
+      
+      // Load saved progress from LocalStorage
+      const saved = localStorage.getItem("onboarding_v1");
+      if (saved) {
+        const p = JSON.parse(saved);
+        setBasicInfo(p.basicInfo); setContact(p.contact); setLocation(p.location);
+        setClinicDetails(p.clinicDetails); setConsultation(p.consultation);
+        setAvailability(p.availability); setPublicProfile(p.publicProfile);
+        setDocuments(p.documents); setStep(p.step || 1);
       }
+      setLoading(false);
     };
-    initSystem();
-  }, [supabase, router]);
+    init();
+  }, []);
+
+  // Sync to storage on every state change
+  useEffect(() => {
+    if (!loading) {
+      localStorage.setItem("onboarding_v1", JSON.stringify({
+        step, basicInfo, contact, location, clinicDetails, consultation, availability, publicProfile, documents
+      }));
+    }
+  }, [step, basicInfo, contact, location, clinicDetails, consultation, availability, publicProfile, documents]);
 
   // -------------------------------------------------------------
-  // 🟢 3. STEP VALIDATION BARRIER
+  // 🟢 3. STEP LOGIC
   // -------------------------------------------------------------
   const validateStep = (s: number): boolean => {
-    setGlobalError(null);
     setErrors({});
     let isValid = true;
-    let newErrors: Record<string, string> = {};
-
-    if (s === 1) {
-      if (!basicInfo.clinicName) newErrors.clinicName = "Clinic name is required";
-      if (!basicInfo.doctorName) newErrors.doctorName = "Doctor name is required";
-      if (!basicInfo.specialization) newErrors.specialization = "Specialization is required";
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      isValid = false;
-      setGlobalError("Please fix the highlighted errors before continuing.");
-    }
+    if (s === 1 && !basicInfo.clinicName) { setErrors({ clinicName: "Required" }); isValid = false; }
     return isValid;
   };
 
@@ -150,103 +135,46 @@ export default function DoctorOnboardingPage() {
     }
   };
 
-  // -------------------------------------------------------------
-  // 🟢 4. SMART RENDER ENGINE (Injects Correct Data via Switch)
-  // -------------------------------------------------------------
   const renderCurrentStep = () => {
     switch (step) {
-      case 1:
-        return <BasicInfoStep data={basicInfo as any} onChange={(updates) => setBasicInfo(prev => ({ ...prev, ...updates }))} errors={errors} />;
-      case 2:
-        return <ContactStep data={contact as any} onChange={(updates) => setContact(prev => ({ ...prev, ...updates }))} errors={errors} />;
-      case 3:
-        return <LocationStep locationData={location} setLocationData={setLocation} />;
-      case 4:
-        return <ClinicDetailsStep data={clinicDetails as any} onChange={(updates) => setClinicDetails(prev => ({ ...prev, ...updates }))} errors={errors} />;
-      case 5:
-        return <ConsultationStep data={consultation as any} onChange={(updates) => setConsultation(prev => ({ ...prev, ...updates }))} errors={errors} />;
-      case 6:
-        return <AvailabilityStep data={availability as any} onChange={(updates) => setAvailability(prev => ({ ...prev, ...updates } as any))} errors={errors} />;
-      case 7:
-        return <PublicProfileStep data={publicProfile as any} onChange={(updates) => setPublicProfile(prev => ({ ...prev, ...updates }))} errors={errors} />;
-      case 8:
-        // 🔥 FIXED: Mapped aligned data properties and functional update patterns perfectly
-        return <DocumentsStep data={documents} onChange={(updates) => setDocuments(prev => ({ ...prev, ...updates }))} errors={errors} />;
-      case 9:
-        const packagedState = {
-          group1: { basicInfo, location, contact },
-          group2: { clinicDetails, consultation },
-          group3: { availability, publicProfile, documents }
-        };
-        return <ReviewStep globalState={packagedState} onNavigateToStep={setStep} />;
-      default:
-        return <div className="p-10 text-center text-gray-500 font-medium bg-white rounded-xl border">Development Mode: Step {step} UI is pending.</div>;
+      case 1: return <BasicInfoStep data={basicInfo as any} onChange={(u) => setBasicInfo(p => ({ ...p, ...u }))} errors={errors} />;
+      case 2: return <ContactStep data={contact as any} onChange={(u) => setContact(p => ({ ...p, ...u }))} errors={errors} />;
+      case 3: return <LocationStep locationData={location} setLocationData={setLocation} />;
+      case 4: return <ClinicDetailsStep data={clinicDetails as any} onChange={(u) => setClinicDetails(p => ({ ...p, ...u }))} errors={errors} />;
+      case 5: return <ConsultationStep data={consultation as any} onChange={(u) => setConsultation(p => ({ ...p, ...u }))} errors={errors} />;
+      case 6: return <AvailabilityStep data={availability as any} onChange={(u) => setAvailability(p => ({ ...p, ...u } as any))} errors={errors} />;
+      case 7: return <PublicProfileStep data={publicProfile as any} onChange={(u) => setPublicProfile(p => ({ ...p, ...u }))} errors={errors} />;
+      case 8: return <DocumentsStep data={documents} onChange={(u) => setDocuments(p => ({ ...p, ...u }))} errors={errors} />;
+      case 9: return <ReviewStep globalState={{ group1: { basicInfo, location, contact }, group2: { clinicDetails, consultation }, group3: { availability, publicProfile, documents } }} onNavigateToStep={setStep} />;
+      default: return <div>Pending</div>;
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
-        <Loader2 className="w-12 h-12 animate-spin text-primary-600 mb-4" />
-        <h2 className="text-xl font-bold text-gray-900">Booting Platform Engine...</h2>
-      </div>
-    );
-  }
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
-    <div className="min-h-screen bg-gray-50/50 py-10 px-4 sm:px-6">
+    <div className="min-h-screen bg-gray-50/50 py-10 px-4">
       <div className="max-w-4xl mx-auto space-y-6">
-
-        {/* Header Module */}
-        <div className="flex items-center justify-between bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Onboarding Matrix</h1>
-            <p className="text-sm text-gray-500 font-medium">Step {step} of 9: {stepLabels[step - 1]}</p>
+            <h1 className="text-2xl font-bold">Onboarding Matrix</h1>
+            <p className="text-sm text-gray-500">Step {step} of 9: {stepLabels[step - 1]}</p>
           </div>
-          <MapPin className="w-8 h-8 text-primary-500 bg-primary-50 p-1.5 rounded-lg" />
+          <MapPin className="text-primary-500 bg-primary-50 p-2 rounded-lg" />
         </div>
 
-        {/* Global Error Banner */}
-        {globalError && (
-          <div className="p-4 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-sm font-semibold shadow-sm animate-in fade-in slide-in-from-top-2">
-            🚨 {globalError}
-          </div>
-        )}
-
-        {/* DYNAMIC COMPONENT RENDERER */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 md:p-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
           {renderCurrentStep()}
         </div>
 
-        {/* Navigation Control Board */}
-        <div className="flex items-center justify-between pt-4">
-          <button 
-            onClick={() => navigateStep("prev")}
-            disabled={step === 1 || saving}
-            className="px-6 py-3 text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 font-bold rounded-xl flex items-center gap-2 transition disabled:opacity-50"
-          >
-            <ChevronLeft className="w-5 h-5" /> Back
-          </button>
-
+        <div className="flex justify-between pt-4">
+          <button onClick={() => navigateStep("prev")} disabled={step === 1 || saving} className="px-6 py-3 bg-white border border-gray-200 rounded-xl font-bold">Back</button>
           {step < 9 ? (
-            <button 
-              onClick={() => navigateStep("next")}
-              className="px-8 py-3 bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-xl shadow-lg shadow-primary-200 transition flex items-center gap-2"
-            >
-              Continue <ChevronRight className="w-5 h-5" />
-            </button>
+            <button onClick={() => navigateStep("next")} className="px-8 py-3 bg-primary-600 text-white rounded-xl font-bold">Continue</button>
           ) : (
-            <button 
-              onClick={() => { /* FINAL SUBMIT LOGIC TO SUPABASE HERE */ }}
-              disabled={saving}
-              className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition flex items-center gap-2"
-            >
-              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
-              {saving ? "Deploying..." : "Finalize & Launch"}
-            </button>
+            <button disabled={saving} className="px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold">Finalize</button>
           )}
         </div>
-
       </div>
     </div>
   );
