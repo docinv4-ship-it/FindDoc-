@@ -25,10 +25,15 @@ export default function AuthModal({
       setIsSigningIn(true);
       setErrorMessage(null);
 
+      const redirectUrl = `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectPath)}`;
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=${redirectPath}`,
+          redirectTo: redirectUrl,
+          queryParams: {
+            prompt: "select_account", // 👈 FIX: FORCE ACCOUNT SELECTION SCREEN
+          },
         },
       });
 
@@ -43,7 +48,7 @@ export default function AuthModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl transition-all border border-gray-100">
         <div className="flex items-center justify-between pb-4 border-b border-gray-100">
           <h2 className="text-xl font-bold text-gray-900">Sign In to Continue</h2>
