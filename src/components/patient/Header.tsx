@@ -1,9 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, Stethoscope, User } from "lucide-react";
+import { Bell, Stethoscope, User, LogOut } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 export default function Header() {
+  const supabase = createClient();
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      localStorage.clear();
+      sessionStorage.clear();
+      // Hard refresh to clear cached OAuth tokens
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Logout failed:", error);
+      window.location.href = "/";
+    }
+  };
+
   return (
     <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100 px-5 py-3.5 flex justify-between items-center">
       {/* Brand Logo */}
@@ -29,6 +45,13 @@ export default function Header() {
         >
           <User className="w-5 h-5" />
         </Link>
+        <button
+          onClick={handleLogout}
+          title="Sign Out"
+          className="p-2 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all border border-transparent hover:border-red-100"
+        >
+          <LogOut className="w-5 h-5" />
+        </button>
       </div>
     </header>
   );
