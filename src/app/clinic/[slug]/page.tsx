@@ -15,9 +15,7 @@ import {
   Globe, 
   QrCode, 
   Share2, 
-  ExternalLink,
-  Layers,
-  Navigation
+  Layers
 } from "lucide-react";
 import { DoctorStructuredData } from "@/components/StructuredData";
 import { generateDoctorQRCodeUrl, downloadQRCode } from "@/lib/qr-code";
@@ -222,13 +220,6 @@ export default function ClinicPage() {
     return `https://maps.google.com/maps?q=${query}&z=16${typeParam}&ie=UTF8&iwloc=&output=embed`;
   };
 
-  const getDirectDirectionsUrl = () => {
-    if (lat && lng) {
-      return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-    }
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${clinic.address}, ${clinic.city}`)}`;
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
       <DoctorStructuredData
@@ -360,7 +351,7 @@ export default function ClinicPage() {
               </div>
             </div>
 
-            {/* --- 🎯 ADVANCED GOOGLE HD SATELLITE MAP ENGINE --- */}
+            {/* --- GOOGLE MAP ENGINE --- */}
             <div className="mt-8 pt-8 border-t border-gray-100">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
                 <div>
@@ -406,22 +397,6 @@ export default function ClinicPage() {
                   referrerPolicy="no-referrer-when-downgrade"
                   title="Google Satellite Map"
                 />
-              </div>
-
-              {/* Quick Navigation Footer Link */}
-              <div className="flex items-center justify-between flex-wrap gap-3 mt-3 px-1">
-                <p className="text-xs font-mono text-gray-500">
-                  📍 {lat && lng ? `GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)}` : `${clinic.address}, ${clinic.city}`}
-                </p>
-
-                <a
-                  href={getDirectDirectionsUrl()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-all shadow-sm"
-                >
-                  <Navigation className="w-3.5 h-3.5 text-emerald-400" /> Get Live Directions in Google Maps <ExternalLink className="w-3.5 h-3.5 opacity-70" />
-                </a>
               </div>
             </div>
           </div>
