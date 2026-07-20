@@ -3,18 +3,18 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import ConsentProvider from "@/components/ConsentProvider";
 import PWAProvider from "@/components/PWAProvider";
-import BottomNav from "@/components/BottomNav";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "DocFind - Find & Book Healthcare Appointments",
-  description: "Find verified doctors, check real-time availability, and book appointments instantly. Quality healthcare access made simple.",
+  description:
+    "Find verified doctors, check real-time availability, and book appointments instantly. Quality healthcare access made simple.",
   manifest: "/manifest.json",
-  themeColor: "#36d1cf",
   openGraph: {
     title: "DocFind - Find & Book Healthcare Appointments",
-    description: "Find verified doctors, check real-time availability, and book appointments instantly. Quality healthcare access made simple.",
+    description:
+      "Find verified doctors, check real-time availability, and book appointments instantly. Quality healthcare access made simple.",
     url: "https://docfind.com",
     siteName: "DocFind",
     type: "website",
@@ -30,7 +30,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "DocFind - Find & Book Healthcare Appointments",
-    description: "Find verified doctors, check real-time availability, and book appointments instantly.",
+    description:
+      "Find verified doctors, check real-time availability, and book appointments instantly.",
     images: ["/og-image.png"],
   },
   appleWebApp: {
@@ -39,15 +40,9 @@ export const metadata: Metadata = {
     title: "DocFind",
   },
   icons: {
-    icon: [
-      { url: "/icons/icon.svg", type: "image/svg+xml" },
-    ],
-    apple: [
-      { url: "/icons/icon.svg", type: "image/svg+xml" },
-    ],
-    shortcut: [
-      { url: "/icons/icon.svg", type: "image/svg+xml" },
-    ],
+    icon: [{ url: "/icons/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/icon.svg", type: "image/svg+xml" }],
+    shortcut: [{ url: "/icons/icon.svg", type: "image/svg+xml" }],
   },
 };
 
@@ -67,10 +62,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <PWAProvider>
-          {children}
-          <BottomNav />
-        </PWAProvider>
+        <PWAProvider>{children}</PWAProvider>
         <ConsentProvider />
       </body>
     </html>
