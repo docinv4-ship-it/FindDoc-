@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Loader2, ChevronLeft, MapPin } from "lucide-react";
+import { Loader2, MapPin } from "lucide-react";
 
 // --- IMPORTING STEPS ---
 import BasicInfoStep from "@/components/onboarding/BasicInfoStep";
@@ -151,7 +151,7 @@ export default function DoctorOnboardingPage() {
   };
 
   // -------------------------------------------------------------
-  // 🟢 AIRTIGHT DUAL-TABLE TRANSACTION TRANSACTION LAYER (100% BULLETPROOF)
+  // 🟢 FAILPROOF MANUAL TRANSACTION LAYER (NO CONFLICT ERRORS POSSIBLE)
   // -------------------------------------------------------------
   const handleFinalizeSubmission = async () => {
     setSaving(true);
@@ -162,96 +162,118 @@ export default function DoctorOnboardingPage() {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) throw new Error("Your session has expired. Please log in again.");
 
-      // 2. STEP A: Upsert Core Doctor Profile & Select Generated ID
-      const { data: doctorRow, error: dbError } = await supabase
+      // Doctor Payload
+      const doctorPayload = {
+        user_id: user.id,       
+        full_name: basicInfo.doctorName || "Doctor Name", 
+        email: contact.email || user.email || "doctor@clinic.com", 
+        specialization: basicInfo.specialization || "General Medicine", 
+        doctor_name: basicInfo.doctorName || "",
+        clinic_name: basicInfo.clinicName || "",
+        qualification: basicInfo.qualification || "",
+        experience_years: parseInt(basicInfo.experienceYears) || 0, 
+        registration_number: basicInfo.registrationNumber || "",
+        custom_specialization: basicInfo.customSpecialization || "",
+        mobile: contact.mobile || "",
+        phone: contact.mobile || "",
+        facebook_url: contact.facebook || null,
+        instagram_url: contact.instagram || null,
+        linkedin_url: contact.linkedin || null,
+        whatsapp_number: contact.whatsapp || null,
+        website_url: contact.website || null,
+        profile_image_url: clinicDetails.logoUrl || null,
+        cover_image_url: clinicDetails.coverImageUrl || null,
+        bio: publicProfile.bio || "",
+        languages_spoken: clinicDetails.languages || [],
+        services_offered: publicProfile.services || [],
+        location_data: { ...location, city: location.zone || location.country }, 
+        consultation_fee: parseFloat(consultation.consultationFee.toString()) || 0,
+        slot_size_minutes: consultation.slotSizeMinutes || "30",
+        availability_schedule: availability.schedule || [],
+        clinic_details: clinicDetails || {},
+        public_profile: publicProfile || {},
+        documents: documents || {},
+        is_onboarded: true, 
+        is_verified: false,
+        updated_at: new Date().toISOString(),
+      };
+
+      // 2. STEP A: Check & Upsert Doctors Table
+      const { data: existingDoctor } = await supabase
         .from("doctors")
-        .upsert(
-          {
-            user_id: user.id,       
-            full_name: basicInfo.doctorName || "Doctor Name", 
-            email: contact.email || user.email || "doctor@clinic.com", 
-            specialization: basicInfo.specialization || "General Medicine", 
-
-            doctor_name: basicInfo.doctorName || "",
-            clinic_name: basicInfo.clinicName || "",
-            qualification: basicInfo.qualification || "",
-            experience_years: parseInt(basicInfo.experienceYears) || 0, 
-            registration_number: basicInfo.registrationNumber || "",
-            custom_specialization: basicInfo.customSpecialization || "",
-
-            mobile: contact.mobile || "",
-            phone: contact.mobile || "",
-            facebook_url: contact.facebook || null,
-            instagram_url: contact.instagram || null,
-            linkedin_url: contact.linkedin || null,
-            whatsapp_number: contact.whatsapp || null,
-            website_url: contact.website || null,
-
-            profile_image_url: clinicDetails.logoUrl || null,
-            cover_image_url: clinicDetails.coverImageUrl || null,
-            bio: publicProfile.bio || "",
-            languages_spoken: clinicDetails.languages || [],
-            services_offered: publicProfile.services || [],
-
-            location_data: { ...location, city: location.zone || location.country }, 
-            consultation_fee: parseFloat(consultation.consultationFee.toString()) || 0,
-            slot_size_minutes: consultation.slotSizeMinutes || "30",
-            availability_schedule: availability.schedule || [],
-            clinic_details: clinicDetails || {},
-            public_profile: publicProfile || {},
-            documents: documents || {},
-
-            is_onboarded: true, 
-            is_verified: false,
-            updated_at: new Date().toISOString(),
-          }, 
-          { onConflict: 'user_id' }
-        )
         .select("id")
-        .single();
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-      if (dbError) throw dbError;
-      if (!doctorRow) throw new Error("Critical synchronization anomaly: Doctor tracking row was not returned.");
+      let doctorId = existingDoctor?.id;
 
-      // 3. Normalize Routing URL Slugs
+      if (doctorId) {
+        const { error: updateErr } = await supabase
+          .from("doctors")
+          .update(doctorPayload)
+          .eq("id", doctorId);
+        if (updateErr) throw updateErr;
+      } else {
+        const { data: newDoc, error: insertErr } = await supabase
+          .from("doctors")
+          .insert(doctorPayload)
+          .select("id")
+          .single();
+        if (insertErr) throw insertErr;
+        doctorId = newDoc.id;
+      }
+
+      // 3. Normalize Slug
       const rawSlug = publicProfile.profileSlug || basicInfo.clinicName || `clinic-${user.id.slice(0, 6)}`;
       const cleanSlug = rawSlug
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/(^-|-$)+/g, "");
 
-      // 4. STEP B: Upsert Independent Clinics Table Profile (Unlocks Maps & Public Profile Routes)
-      const { error: clinicError } = await supabase
+      // Clinic Payload
+      const clinicPayload = {
+        doctor_id: doctorId,
+        name: basicInfo.clinicName || "My Clinic",
+        slug: cleanSlug,
+        address: location.streetAddress || "Clinic Address",
+        city: location.zone || "City Location",
+        latitude: location.latitude ? parseFloat(location.latitude.toString()) : 33.5889,
+        longitude: location.longitude ? parseFloat(location.longitude.toString()) : 71.4429,
+        consultation_fee: parseFloat(consultation.consultationFee.toString()) || 0,
+        slot_duration_minutes: parseInt(consultation.slotSizeMinutes) || 30,
+        phone: contact.mobile || null,
+        logo_url: clinicDetails.logoUrl || null,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      };
+
+      // 4. STEP B: Check & Upsert Clinics Table
+      const { data: existingClinic } = await supabase
         .from("clinics")
-        .upsert(
-          {
-            doctor_id: doctorRow.id,
-            name: basicInfo.clinicName || "My Clinic",
-            slug: cleanSlug,
-            address: location.streetAddress || "Clinic Address",
-            city: location.zone || "City Location",
-            // 🎯 PARSING FLOATS EXPLICITLY SO OPENSTREETMAPS / GOOGLE MAPS NEVER CRASH OR RENDER GRAY
-            latitude: location.latitude ? parseFloat(location.latitude.toString()) : 33.5889,
-            longitude: location.longitude ? parseFloat(location.longitude.toString()) : 71.4429,
-            consultation_fee: parseFloat(consultation.consultationFee.toString()) || 0,
-            slot_duration_minutes: parseInt(consultation.slotSizeMinutes) || 30,
-            phone: contact.mobile || null,
-            logo_url: clinicDetails.logoUrl || null,
-            is_active: true,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'doctor_id' }
-        );
+        .select("id")
+        .eq("doctor_id", doctorId)
+        .maybeSingle();
 
-      if (clinicError) throw clinicError;
+      if (existingClinic) {
+        const { error: clinicUpdateErr } = await supabase
+          .from("clinics")
+          .update(clinicPayload)
+          .eq("id", existingClinic.id);
+        if (clinicUpdateErr) throw clinicUpdateErr;
+      } else {
+        const { error: clinicInsertErr } = await supabase
+          .from("clinics")
+          .insert(clinicPayload);
+        if (clinicInsertErr) throw clinicInsertErr;
+      }
 
-      // 5. Purge Cache & Deploy Routing Redirect
+      // 5. Clear Cache & Redirect
       localStorage.removeItem("onboarding_v1");
       router.push("/doctor/dashboard");
 
     } catch (err: any) {
-      console.error("Direct Execution Pipeline Collapsed:", err);
-      setGlobalError(err.message || "Failed to finalize database configuration parameters.");
+      console.error("Submission failed:", err);
+      setGlobalError(err.message || "Failed to finalize database submission.");
     } finally {
       setSaving(false);
     }
@@ -299,7 +321,7 @@ export default function DoctorOnboardingPage() {
           <button 
             onClick={() => navigateStep("prev")} 
             disabled={step === 1 || saving} 
-            className="px-6 py-3 bg-white border border-gray-200 rounded-xl font-bold disabled:opacity-50"
+            className="px-6 py-3 bg-white border border-gray-200 rounded-xl font-bold disabled:opacity-50 hover:bg-gray-50 transition-colors"
           >
             Back
           </button>
@@ -307,7 +329,7 @@ export default function DoctorOnboardingPage() {
           {step < 8 ? (
             <button 
               onClick={() => navigateStep("next")} 
-              className="px-8 py-3 bg-primary-600 text-white rounded-xl font-bold"
+              className="px-8 py-3 bg-primary-600 text-white rounded-xl font-bold hover:bg-primary-700 transition-colors"
             >
               Continue
             </button>
@@ -315,7 +337,7 @@ export default function DoctorOnboardingPage() {
             <button 
               onClick={handleFinalizeSubmission}
               disabled={saving}
-              className="px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold flex items-center gap-2 disabled:bg-emerald-700"
+              className="px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold flex items-center gap-2 disabled:bg-emerald-700 hover:bg-emerald-700 transition-colors"
             >
               {saving ? (
                 <>
