@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
 
-    // 1. Authenticate Request via Supabase Auth Session (Security Layer)
+    // 1. Authenticate Request via Supabase Auth Session
     const {
       data: { user: authUser },
     } = await supabase.auth.getUser();
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     const body: StartChatPayload = await request.json();
     const { doctor_id, clinic_id, patient_name, patient_email, patient_user_id } = body;
 
-    // 2. Strict Payload Sanity Check (No Mandatory Phone Number)
+    // 2. Strict Payload Sanity Check
     if (!doctor_id || !clinic_id || !patient_name?.trim()) {
       return NextResponse.json(
         { error: "Doctor ID, Clinic ID, and Patient Name are required." },
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     const effectiveEmail = authUser?.email || patient_email?.trim() || null;
     const effectiveUserId = authUser?.id || patient_user_id || null;
 
-    // 3. Verify Doctor & Clinic Ownership Alignment
+    // 3. Verify Doctor & Clinic
     const { data: clinic, error: clinicError } = await supabase
       .from("clinics")
       .select("id, doctor_id")
@@ -47,8 +47,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 4. Resolve Patient Identity (Atomic Lookup / Safe Fallback)
-    let patientId: string | null = effectiveUserId;
+    // 4. Resolve Patient Identity (Safe DB Lookup & Insert)
+    let patientId: string | null = null;
 
     if (effectiveEmail) {
       const { data: existingPatient } = await supabase
@@ -60,12 +60,13 @@ export async function POST(request: NextRequest) {
       if (existingPatient) {
         patientId = existingPatient.id;
       } else {
+        // Safe insert: 'phone' mein fallback default string taake DB NOT NULL error na de
         const { data: newPatient, error: createPatientError } = await supabase
           .from("patients")
           .insert({
-            ...(effectiveUserId ? { id: effectiveUserId } : {}),
             full_name: patient_name.trim(),
             email: effectiveEmail,
+            phone: "0000000000", // Fixes DB NOT NULL phone constraint
             is_guest: !authUser,
           })
           .select("id")
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
         if (createPatientError) {
           console.error("[Chat API] Patient creation failed:", createPatientError);
           return NextResponse.json(
-            { error: "Unable to resolve patient account. Please try again." },
+            { error: `DB Patient Error: ${createPatientError.message}` },
             { status: 500 }
           );
         }
@@ -83,13 +84,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (!patientId) {
+      patientId = effectiveUserId;
+    }
+
+    if (!patientId) {
       return NextResponse.json(
-        { error: "Authentication required to start consultation chat." },
+        { error: "Authentication or valid email required to start chat." },
         { status: 401 }
       );
     }
 
-    // 5. Existing Active Conversation Retrieval
+    // 5. Existing Active Conversation Check
     const { data: existingConvo } = await supabase
       .from("conversations")
       .select("id")
@@ -121,27 +126,23 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (convoError || !conversation) {
-      console.error("[Chat API] Conversation initialization error:", convoError);
+      console.error("[Chat API] Conversation creation error:", convoError);
       return NextResponse.json(
-        { error: "Failed to establish chat session with clinic." },
+        { error: `DB Conversation Error: ${convoError?.message || "Failed to create session"}` },
         { status: 500 }
       );
     }
 
-    // 7. Dispatch Initial Welcome Message
+    // 7. Initial Welcome Message
     const welcomeMessage = `Hello ${patient_name.trim()}! Welcome to our clinic. How can we help you today?`;
 
-    const { error: messageError } = await supabase.from("messages").insert({
+    await supabase.from("messages").insert({
       conversation_id: conversation.id,
       sender_id: doctor_id,
       sender_type: "doctor",
       content: welcomeMessage,
       is_read: false,
     });
-
-    if (messageError) {
-      console.warn("[Chat API] Non-critical warning (Welcome message failed):", messageError);
-    }
 
     return NextResponse.json({
       conversation_id: conversation.id,
@@ -153,7 +154,7 @@ export async function POST(request: NextRequest) {
     const err = error instanceof Error ? error.message : "Unknown fatal error";
     console.error("[Chat API Fatal Exception]:", err);
     return NextResponse.json(
-      { error: "Internal server error occurred." },
+      { error: `Server Error: ${err}` },
       { status: 500 }
     );
   }
