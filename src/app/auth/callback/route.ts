@@ -23,16 +23,23 @@ export async function GET(request: Request) {
                 cookieStore.set(name, value, options)
               );
             } catch {
-              // Context safe
+              // Safe in server environment
             }
           },
         },
       }
     );
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
-    if (!error) {
+    if (!error && data?.user) {
+      // Auto-inject patient role if metadata is missing (Google OAuth)
+      if (!data.user.user_metadata?.role) {
+        await supabase.auth.updateUser({
+          data: { role: "patient" },
+        });
+      }
+
       const forwardedHost = request.headers.get("x-forwarded-host");
       const isLocalEnv = process.env.NODE_ENV === "development";
 
@@ -46,6 +53,5 @@ export async function GET(request: Request) {
     }
   }
 
-  // Redirect to login page with error state if code exchange fails
   return NextResponse.redirect(`${origin}/login?error=auth_failed`);
 }
