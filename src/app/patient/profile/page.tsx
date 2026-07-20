@@ -2,24 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter, usePathname } from "next/navigation";
-import { Loader2, User, Home, Search, Calendar, Bell, Stethoscope, Mail, Phone, Shield, LogOut } from "lucide-react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Loader2, Heart, Star, HelpCircle, ShieldCheck, ChevronRight, LogOut } from "lucide-react";
 
 export default function PatientProfilePage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const router = useRouter();
-  const pathname = usePathname();
   const supabase = createClient();
 
   useEffect(() => {
     const fetchUser = async () => {
-      const { data: { user }, error } = await supabase.auth.getUser();
-      if (error || !user) {
-        router.push("/login"); // Redirect to login if unauthorized
-      } else {
-        setUser(user);
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) router.push("/login");
+      else setUser(user);
       setLoading(false);
     };
     fetchUser();
@@ -32,116 +29,71 @@ export default function PatientProfilePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} />
+      <div className="flex justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-cyan-500" />
       </div>
     );
   }
 
+  const menuSections = [
+    {
+      title: "Activity",
+      items: [
+        { label: "Favorite Doctors", href: "/patient/favorites", icon: Heart },
+        { label: "My Reviews", href: "/patient/reviews", icon: Star },
+      ],
+    },
+    {
+      title: "Settings",
+      items: [
+        { label: "Help & Support", href: "/patient/support", icon: HelpCircle },
+        { label: "Privacy & Security", href: "#", icon: ShieldCheck },
+      ],
+    },
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-50 pb-24 md:pb-12">
-      {/* Desktop Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push("/")}>
-              <Stethoscope className="w-8 h-8" style={{ color: "#36d1cf" }} />
-              <span className="text-xl font-bold text-gray-900">DocFind</span>
-            </div>
-            <nav className="hidden md:flex items-center gap-6">
-              <button onClick={() => router.push("/")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors">Home</button>
-              <button onClick={() => router.push("/patient")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors">Find Doctors</button>
-              <button onClick={() => router.push("/patient/favorites")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors">Favorites</button>
-              <button onClick={() => router.push("/patient/chats")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors">Chats</button>
-              <button onClick={() => router.push("/patient/appointments")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors">Appointments</button>
-              <button onClick={() => router.push("/patient/profile")} className="flex items-center gap-1 text-sm font-semibold text-[#36d1cf] transition-colors border-b-2 border-[#36d1cf] pb-1">
-                <User className="w-4 h-4" /> Account
-              </button>
-            </nav>
-          </div>
+    <div className="pt-6 px-5 pb-24">
+      {/* User Info */}
+      <div className="bg-white rounded-2xl p-5 border border-gray-100 flex items-center gap-4 mb-6 shadow-sm">
+        <div className="w-12 h-12 rounded-xl bg-cyan-50 flex items-center justify-center text-cyan-600 font-bold text-lg">
+          {user?.user_metadata?.full_name?.charAt(0) || "P"}
         </div>
-      </header>
-
-      {/* Main Profile Area */}
-      <main className="max-w-3xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Account Settings</h1>
-
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          {/* User Header Info Card */}
-          <div className="p-6 border-b border-gray-100 bg-gray-50 flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-[#e6faf9] flex items-center justify-center text-[#36d1cf]">
-              <User className="w-8 h-8" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">{user?.user_metadata?.full_name || "Patient User"}</h2>
-              <p className="text-sm text-gray-500">Patient Account</p>
-            </div>
-          </div>
-
-          {/* Details list */}
-          <div className="p-6 space-y-4">
-            <div className="flex items-center gap-3 py-2 border-b border-gray-50">
-              <Mail className="w-5 h-5 text-gray-400" />
-              <div>
-                <p className="text-xs text-gray-500 font-medium">Email Address</p>
-                <p className="text-sm text-gray-900 font-medium">{user?.email}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 py-2 border-b border-gray-50">
-              <Phone className="w-5 h-5 text-gray-400" />
-              <div>
-                <p className="text-xs text-gray-500 font-medium">Phone Number</p>
-                <p className="text-sm text-gray-900 font-medium">{user?.phone || "Not Provided"}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 py-2">
-              <Shield className="w-5 h-5 text-gray-400" />
-              <div>
-                <p className="text-xs text-gray-500 font-medium">Account Status</p>
-                <p className="text-sm text-emerald-600 font-bold">Active Patient</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Action Footer */}
-          <div className="p-6 bg-gray-50 border-t border-gray-100 flex justify-end">
-            <button 
-              onClick={handleSignOut} 
-              className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-semibold rounded-lg text-sm transition-colors"
-            >
-              <LogOut className="w-4 h-4" /> Log Out
-            </button>
-          </div>
+        <div>
+          <h2 className="font-semibold text-gray-900">{user?.user_metadata?.full_name || "Patient"}</h2>
+          <p className="text-xs text-gray-500">{user?.email}</p>
         </div>
-      </main>
+      </div>
 
-      {/* Synchronized Mobile Bottom Navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-2 flex justify-between items-center z-50 shadow-lg">
-        <button onClick={() => router.push("/")} className="flex flex-col items-center gap-1 bg-transparent border-0">
-          <Home className="w-5 h-5" style={{ color: pathname === "/" ? "#36d1cf" : "#9ca3af" }} />
-          <span className="text-[10px] font-medium" style={{ color: pathname === "/" ? "#36d1cf" : "#9ca3af" }}>Home</span>
-        </button>
+      {/* Menu List */}
+      <div className="space-y-6">
+        {menuSections.map((section, idx) => (
+          <div key={idx}>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">
+              {section.title}
+            </p>
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden divide-y divide-gray-50 shadow-sm">
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link key={item.href} href={item.href} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <Icon className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm font-medium text-gray-700">{item.label}</span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-300" />
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
 
-        <button onClick={() => router.push("/patient")} className="flex flex-col items-center gap-1 bg-transparent border-0">
-          <Search className="w-5 h-5" style={{ color: pathname === "/patient" ? "#36d1cf" : "#9ca3af" }} />
-          <span className="text-[10px] font-medium" style={{ color: pathname === "/patient" ? "#36d1cf" : "#9ca3af" }}>Find</span>
-        </button>
-
-        <button onClick={() => router.push("/patient/appointments")} className="flex flex-col items-center gap-1 bg-transparent border-0">
-          <Calendar className="w-5 h-5" style={{ color: pathname?.includes("/appointments") ? "#36d1cf" : "#9ca3af" }} />
-          <span className="text-[10px] font-medium" style={{ color: pathname?.includes("/appointments") ? "#36d1cf" : "#9ca3af" }}>Bookings</span>
-        </button>
-
-        <button onClick={() => router.push("/patient/notifications")} className="flex flex-col items-center gap-1 bg-transparent border-0">
-          <Bell className="w-5 h-5" style={{ color: pathname?.includes("/notifications") ? "#36d1cf" : "#9ca3af" }} />
-          <span className="text-[10px] font-medium" style={{ color: pathname?.includes("/notifications") ? "#36d1cf" : "#9ca3af" }}>Alerts</span>
-        </button>
-
-        <button onClick={() => router.push("/patient/profile")} className="flex flex-col items-center gap-1 bg-transparent border-0">
-          <User className="w-5 h-5" style={{ color: pathname?.includes("/profile") ? "#36d1cf" : "#9ca3af" }} />
-          <span className="text-[10px] font-medium" style={{ color: pathname?.includes("/profile") ? "#36d1cf" : "#9ca3af" }}>Profile</span>
+        <button
+          onClick={handleSignOut}
+          className="w-full bg-white rounded-2xl p-4 border border-rose-100 text-rose-500 hover:bg-rose-50 text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm"
+        >
+          <LogOut className="w-4 h-4" /> Log Out
         </button>
       </div>
     </div>
