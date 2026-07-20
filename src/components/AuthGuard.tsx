@@ -65,7 +65,7 @@ export default function AuthGuard({ children, currentPath }: AuthGuardProps) {
         options: {
           redirectTo: redirectUrl,
           queryParams: {
-            prompt: "select_account", // 👈 GOOGLE ACCOUNT SELECTION FORCE FIX
+            prompt: "select_account",
           },
         },
       });
@@ -81,7 +81,7 @@ export default function AuthGuard({ children, currentPath }: AuthGuardProps) {
   if (!mounted || loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] w-full">
-        <div className="h-8 w-8 rounded-full border-2 border-teal-500/20 border-t-teal-600 animate-spin" />
+        <div className="h-8 w-8 rounded-full border-2 border-cyan-500/20 border-t-cyan-600 animate-spin" />
       </div>
     );
   }
