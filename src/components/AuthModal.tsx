@@ -29,9 +29,6 @@ export default function AuthModal({
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback?next=${redirectPath}`,
-          data: {
-            role: "patient", // Injects metadata required by Middleware
-          },
         },
       });
 
