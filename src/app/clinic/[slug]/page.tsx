@@ -14,6 +14,9 @@ interface ClinicInfo {
   slug: string | null;
   address: string;
   city: string;
+  // 🎯 FIXED: Lat/Lng properties explicitly added to interface
+  latitude: number | string | null;
+  longitude: number | string | null;
   phone: string | null;
   logo_url: string | null;
   gallery_images: string[] | null;
@@ -61,7 +64,14 @@ export default function ClinicPage() {
 
   useEffect(() => {
     const fetchClinic = async () => {
-      const { data, error } = await supabase.from("clinics").select(`*, doctors (id, full_name, specialization, profile_image_url, facebook_url, instagram_url, linkedin_url, website_url, is_verified)`).eq("slug", slug).eq("is_active", true).single();
+      // Supabase automatically pulls latitude and longitude via * selection
+      const { data, error } = await supabase
+        .from("clinics")
+        .select(`*, doctors (id, full_name, specialization, profile_image_url, facebook_url, instagram_url, linkedin_url, website_url, is_verified)`)
+        .eq("slug", slug)
+        .eq("is_active", true)
+        .single();
+      
       if (!error && data) setClinic(data);
       setLoading(false);
     };
@@ -116,7 +126,7 @@ export default function ClinicPage() {
           setChatMessages([{ content: data.welcome_message, sender_type: "doctor" }]);
         }
         setChatStep("chat");
-        
+
         if (typeof window !== "undefined") {
           localStorage.setItem(`chat_session_${clinic.id}`, JSON.stringify({ 
             conversation_id: data.conversation_id, 
@@ -164,6 +174,14 @@ export default function ClinicPage() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} /></div>;
   if (!clinic) return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500">Clinic not found</p></div>;
+
+  // 🎯 MATHEMATICAL BOUNDING BOX FOR EXACT MAP RENDERING
+  const lat = clinic.latitude ? parseFloat(clinic.latitude.toString()) : null;
+  const lng = clinic.longitude ? parseFloat(clinic.longitude.toString()) : null;
+
+  // Precision offsets for micro-mapping bounding box
+  const offset = 0.005; 
+  const bbox = lat && lng ? `${lng - offset},${lat - offset},${lng + offset},${lat + offset}` : null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -280,25 +298,38 @@ export default function ClinicPage() {
               </div>
             </div>
 
-            {/* Map Section */}
+            {/* 🎯 FIXED MAP SECTION: Renders mathematically precise vectors based on DB records */}
             <div className="mt-8 pt-8 border-t border-gray-100">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Location</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Location Map</h3>
               <div className="rounded-xl overflow-hidden border border-gray-200 h-64 bg-gray-100">
-                <iframe
-                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(clinic.address + ', ' + clinic.city)}&layer=mapnik&marker=${encodeURIComponent(clinic.address + ', ' + clinic.city)}`}
-                  width="100%"
-                  height="100%"
-                  style={{ border: 0 }}
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  title="Clinic Location"
-                />
+                {lat && lng && bbox ? (
+                  <iframe
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${lat}%2C${lng}`}
+                    width="100%"
+                    height="100%"
+                    style={{ border: 0 }}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    title="Clinic Location"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 gap-2 p-4 text-center">
+                    <MapPin className="w-8 h-8 text-gray-300" />
+                    <p className="text-sm">Precise location map unavailable.</p>
+                    <p className="text-xs text-gray-400 font-mono">{clinic.address}, {clinic.city}</p>
+                  </div>
+                )}
               </div>
+              
+              {/* 🎯 FIXED GOOGLE MAP DIRECTION ROUTING LINK */}
               <a
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clinic.address + ', ' + clinic.city)}`}
+                href={lat && lng 
+                  ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+                  : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clinic.address + ', ' + clinic.city)}`
+                }
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 mt-3 text-sm text-primary-600 hover:underline"
+                className="inline-flex items-center gap-2 mt-3 text-sm font-medium text-cyan-600 hover:underline"
               >
                 <ExternalLink className="w-4 h-4" />
                 Open in Google Maps
