@@ -3,7 +3,22 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Stethoscope, MapPin, Phone, Clock, Calendar, DollarSign, Star, MessageCircle, User, Loader2, Globe, QrCode, Share2, ExternalLink } from "lucide-react";
+import { 
+  Stethoscope, 
+  MapPin, 
+  Phone, 
+  Clock, 
+  DollarSign, 
+  MessageCircle, 
+  User, 
+  Loader2, 
+  Globe, 
+  QrCode, 
+  Share2, 
+  ExternalLink,
+  Layers,
+  Navigation
+} from "lucide-react";
 import { DoctorStructuredData } from "@/components/StructuredData";
 import { generateDoctorQRCodeUrl, downloadQRCode } from "@/lib/qr-code";
 
@@ -14,7 +29,6 @@ interface ClinicInfo {
   slug: string | null;
   address: string;
   city: string;
-  // 🎯 FIXED: Lat/Lng properties explicitly added to interface
   latitude: number | string | null;
   longitude: number | string | null;
   phone: string | null;
@@ -46,32 +60,38 @@ export default function ClinicPage() {
   const params = useParams();
   const router = useRouter();
   const slug = params?.slug as string;
+
   const [loading, setLoading] = useState(true);
   const [clinic, setClinic] = useState<ClinicInfo | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [slots, setSlots] = useState<Slot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  
+  // Map Layer State: 'satellite' (Hybrid Satellite + Place Labels) vs 'roadmap' (Standard)
+  const [mapMode, setMapMode] = useState<"satellite" | "roadmap">("satellite");
+
+  // Chat State
   const [showChat, setShowChat] = useState(false);
   const [chatStep, setChatStep] = useState<"form" | "chat">("form");
   const [chatName, setChatName] = useState("");
   const [chatPhone, setChatPhone] = useState("");
-  const [chatMessages, setChatMessages] = useState<{content: string; sender_type: string}[]>([]);
+  const [chatMessages, setChatMessages] = useState<{ content: string; sender_type: string }[]>([]);
   const [chatSending, setChatSending] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
   useEffect(() => {
     const fetchClinic = async () => {
-      // Supabase automatically pulls latitude and longitude via * selection
       const { data, error } = await supabase
         .from("clinics")
         .select(`*, doctors (id, full_name, specialization, profile_image_url, facebook_url, instagram_url, linkedin_url, website_url, is_verified)`)
         .eq("slug", slug)
         .eq("is_active", true)
         .single();
-      
+
       if (!error && data) setClinic(data);
       setLoading(false);
     };
@@ -172,16 +192,42 @@ export default function ClinicPage() {
     router.push(`/booking/new?${params}`);
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} /></div>;
-  if (!clinic) return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500">Clinic not found</p></div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} />
+      </div>
+    );
+  }
 
-  // 🎯 MATHEMATICAL BOUNDING BOX FOR EXACT MAP RENDERING
+  if (!clinic) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-500">Clinic not found</p>
+      </div>
+    );
+  }
+
+  // Lat / Lng Precision Parsing
   const lat = clinic.latitude ? parseFloat(clinic.latitude.toString()) : null;
   const lng = clinic.longitude ? parseFloat(clinic.longitude.toString()) : null;
 
-  // Precision offsets for micro-mapping bounding box
-  const offset = 0.005; 
-  const bbox = lat && lng ? `${lng - offset},${lat - offset},${lng + offset},${lat + offset}` : null;
+  // Google HD Map Embed URL Generator (t=h gives Satellite + Road/Place Names)
+  const getGoogleMapEmbedUrl = () => {
+    const typeParam = mapMode === "satellite" ? "&t=h" : "&t=m";
+    if (lat && lng) {
+      return `https://maps.google.com/maps?q=${lat},${lng}&z=17${typeParam}&ie=UTF8&iwloc=&output=embed`;
+    }
+    const query = encodeURIComponent(`${clinic.address}, ${clinic.city}`);
+    return `https://maps.google.com/maps?q=${query}&z=16${typeParam}&ie=UTF8&iwloc=&output=embed`;
+  };
+
+  const getDirectDirectionsUrl = () => {
+    if (lat && lng) {
+      return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    }
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${clinic.address}, ${clinic.city}`)}`;
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -196,52 +242,66 @@ export default function ClinicPage() {
         profileImageUrl={clinic.doctors?.profile_image_url}
         isVerified={clinic.doctors?.is_verified || false}
       />
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-3">
+
+      {/* --- HEADER --- */}
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-50 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+          <a href="/" className="flex items-center gap-2 sm:gap-3 shrink-0">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: "#36d1cf" }}>
               <Stethoscope className="w-6 h-6 text-white" />
             </div>
-            <span className="text-2xl font-bold text-gray-900">DocFind</span>
+            <span className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">DocFind</span>
           </a>
-          <div className="flex items-center gap-4">
-            <a href="/patient" className="text-gray-600 hover:text-gray-900">Find Doctors</a>
-            <a href="/doctor/login" className="px-4 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: "#36d1cf" }}>Doctor Login</a>
+          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+            <a href="/patient" className="text-xs sm:text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+              Find Doctors
+            </a>
+            <a href="/doctor/login" className="px-3 py-2 text-xs sm:text-sm rounded-lg text-white font-medium shadow-sm transition-all hover:opacity-90" style={{ backgroundColor: "#36d1cf" }}>
+              Doctor Login
+            </a>
           </div>
         </div>
       </header>
 
+      {/* --- MAIN CONTENT --- */}
       <main className="max-w-6xl mx-auto px-4 py-8">
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-8">
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-8 shadow-sm">
           <div className="h-48 relative" style={{ backgroundColor: "#e6faf9" }}>
-            {clinic.logo_url && <img src={clinic.logo_url} alt="" className="w-full h-full object-cover" />}
+            {clinic.logo_url && <img src={clinic.logo_url} alt="Clinic Header" className="w-full h-full object-cover" />}
           </div>
-          <div className="p-8">
-            <div className="flex items-start gap-6">
-              <div className="w-24 h-24 rounded-2xl flex items-center justify-center -mt-16 border-4 border-white bg-white shadow-lg overflow-hidden">
-                {clinic.doctors?.profile_image_url ? (
-                  <img src={clinic.doctors.profile_image_url} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <User className="w-10 h-10 text-gray-400" />
-                )}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-bold text-gray-900">{clinic.doctors?.full_name}</h1>
-                  {clinic.doctors?.is_verified && (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: "#e6faf9", color: "#239999" }}>Verified</span>
+          
+          <div className="p-6 md:p-8">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+              <div className="flex items-start gap-4 sm:gap-6">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl flex items-center justify-center -mt-16 sm:-mt-20 border-4 border-white bg-white shadow-md overflow-hidden shrink-0">
+                  {clinic.doctors?.profile_image_url ? (
+                    <img src={clinic.doctors.profile_image_url} alt={clinic.doctors.full_name} className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-10 h-10 text-gray-400" />
                   )}
                 </div>
-                <p className="text-gray-600">{clinic.doctors?.specialization}</p>
-                <div className="flex items-center gap-4 mt-2">
-                  {clinic.doctors?.facebook_url && <a href={clinic.doctors.facebook_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-gray-600"><Globe className="w-5 h-5" /></a>}
-                  {clinic.doctors?.instagram_url && <a href={clinic.doctors.instagram_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-gray-600"><Globe className="w-5 h-5" /></a>}
-                  {clinic.doctors?.linkedin_url && <a href={clinic.doctors.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-gray-600"><Globe className="w-5 h-5" /></a>}
-                  {clinic.doctors?.website_url && <a href={clinic.doctors.website_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-gray-600"><Globe className="w-5 h-5" /></a>}
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{clinic.doctors?.full_name}</h1>
+                    {clinic.doctors?.is_verified && (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: "#e6faf9", color: "#239999" }}>
+                        Verified
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm sm:text-base text-gray-600 font-medium">{clinic.doctors?.specialization}</p>
+                  
+                  <div className="flex items-center gap-3 mt-3">
+                    {clinic.doctors?.facebook_url && <a href={clinic.doctors.facebook_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-cyan-600 transition-colors"><Globe className="w-4 h-4" /></a>}
+                    {clinic.doctors?.instagram_url && <a href={clinic.doctors.instagram_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-cyan-600 transition-colors"><Globe className="w-4 h-4" /></a>}
+                    {clinic.doctors?.linkedin_url && <a href={clinic.doctors.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-cyan-600 transition-colors"><Globe className="w-4 h-4" /></a>}
+                    {clinic.doctors?.website_url && <a href={clinic.doctors.website_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-cyan-600 transition-colors"><Globe className="w-4 h-4" /></a>}
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setShowChat(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: "#36d1cf" }}>
+
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <button onClick={() => setShowChat(true)} className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-white font-semibold text-sm shadow-sm hover:opacity-90 transition-all" style={{ backgroundColor: "#36d1cf" }}>
                   <MessageCircle className="w-4 h-4" /> Chat Now
                 </button>
                 <button
@@ -249,7 +309,7 @@ export default function ClinicPage() {
                     const qrUrl = generateDoctorQRCodeUrl(clinic.doctor_id || "", clinic.slug || "");
                     downloadQRCode(qrUrl, `${clinic.slug || "doctor"}-qrcode.png`);
                   }}
-                  className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
+                  className="p-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
                   title="Download QR Code"
                 >
                   <QrCode className="w-4 h-4 text-gray-600" />
@@ -260,7 +320,7 @@ export default function ClinicPage() {
                     navigator.clipboard.writeText(url);
                     alert("Profile link copied to clipboard!");
                   }}
-                  className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
+                  className="p-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
                   title="Share Profile"
                 >
                   <Share2 className="w-4 h-4 text-gray-600" />
@@ -270,104 +330,150 @@ export default function ClinicPage() {
 
             <div className="grid md:grid-cols-3 gap-6 mt-8 pt-8 border-t border-gray-100">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: "#e6faf9" }}>
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "#e6faf9" }}>
                   <MapPin className="w-6 h-6" style={{ color: "#36d1cf" }} />
                 </div>
                 <div>
                   <p className="font-semibold text-gray-900">{clinic.name}</p>
-                  <p className="text-sm text-gray-500">{clinic.address}, {clinic.city}</p>
+                  <p className="text-xs sm:text-sm text-gray-500">{clinic.address}, {clinic.city}</p>
                 </div>
               </div>
+
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: "#e6faf9" }}>
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "#e6faf9" }}>
                   <DollarSign className="w-6 h-6" style={{ color: "#36d1cf" }} />
                 </div>
                 <div>
                   <p className="font-semibold text-gray-900">${clinic.consultation_fee}</p>
-                  <p className="text-sm text-gray-500">Consultation Fee</p>
+                  <p className="text-xs sm:text-sm text-gray-500">Consultation Fee</p>
                 </div>
               </div>
+
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: "#e6faf9" }}>
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "#e6faf9" }}>
                   <Clock className="w-6 h-6" style={{ color: "#36d1cf" }} />
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">{clinic.slot_duration_minutes} min</p>
-                  <p className="text-sm text-gray-500">Per Appointment</p>
+                  <p className="font-semibold text-gray-900">{clinic.slot_duration_minutes} mins</p>
+                  <p className="text-xs sm:text-sm text-gray-500">Slot Duration</p>
                 </div>
               </div>
             </div>
 
-            {/* 🎯 FIXED MAP SECTION: Renders mathematically precise vectors based on DB records */}
+            {/* --- 🎯 ADVANCED GOOGLE HD SATELLITE MAP ENGINE --- */}
             <div className="mt-8 pt-8 border-t border-gray-100">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Location Map</h3>
-              <div className="rounded-xl overflow-hidden border border-gray-200 h-64 bg-gray-100">
-                {lat && lng && bbox ? (
-                  <iframe
-                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${lat}%2C${lng}`}
-                    width="100%"
-                    height="100%"
-                    style={{ border: 0 }}
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    title="Clinic Location"
-                  />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 gap-2 p-4 text-center">
-                    <MapPin className="w-8 h-8 text-gray-300" />
-                    <p className="text-sm">Precise location map unavailable.</p>
-                    <p className="text-xs text-gray-400 font-mono">{clinic.address}, {clinic.city}</p>
-                  </div>
-                )}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <MapPin className="w-5 h-5 text-cyan-500" /> Clinic Location & Map
+                  </h3>
+                  <p className="text-xs text-gray-500">Interactive Google HD Satellite map with exact street markers and places</p>
+                </div>
+
+                {/* Satellite / Roadmap Switcher Control */}
+                <div className="flex items-center bg-gray-100 p-1 rounded-xl border border-gray-200">
+                  <button
+                    onClick={() => setMapMode("satellite")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      mapMode === "satellite"
+                        ? "bg-white text-gray-900 shadow-sm"
+                        : "text-gray-500 hover:text-gray-900"
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5 text-cyan-600" /> Satellite (HD)
+                  </button>
+                  <button
+                    onClick={() => setMapMode("roadmap")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      mapMode === "roadmap"
+                        ? "bg-white text-gray-900 shadow-sm"
+                        : "text-gray-500 hover:text-gray-900"
+                    }`}
+                  >
+                    <MapPin className="w-3.5 h-3.5 text-red-500" /> Standard
+                  </button>
+                </div>
               </div>
-              
-              {/* 🎯 FIXED GOOGLE MAP DIRECTION ROUTING LINK */}
-              <a
-                href={lat && lng 
-                  ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
-                  : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clinic.address + ', ' + clinic.city)}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 mt-3 text-sm font-medium text-cyan-600 hover:underline"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Open in Google Maps
-              </a>
+
+              {/* Map Canvas Frame */}
+              <div className="relative w-full h-80 sm:h-96 rounded-2xl overflow-hidden border border-gray-200 shadow-inner bg-gray-100">
+                <iframe
+                  key={mapMode}
+                  src={getGoogleMapEmbedUrl()}
+                  className="w-full h-full border-0"
+                  loading="lazy"
+                  allowFullScreen
+                  referrerPolicy="no-referrer-when-downgrade"
+                  title="Google Satellite Map"
+                />
+              </div>
+
+              {/* Quick Navigation Footer Link */}
+              <div className="flex items-center justify-between flex-wrap gap-3 mt-3 px-1">
+                <p className="text-xs font-mono text-gray-500">
+                  📍 {lat && lng ? `GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)}` : `${clinic.address}, ${clinic.city}`}
+                </p>
+
+                <a
+                  href={getDirectDirectionsUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-all shadow-sm"
+                >
+                  <Navigation className="w-3.5 h-3.5 text-emerald-400" /> Get Live Directions in Google Maps <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+                </a>
+              </div>
             </div>
           </div>
         </div>
 
+        {/* --- BOOKING & GALLERY SECTION --- */}
         <div className="grid lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-8">
-            <div className="bg-white rounded-2xl border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Book an Appointment</h2>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Select Date</label>
-                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} min={new Date().toISOString().split("T")[0]} className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2" style={{ "--tw-ring-color": "#36d1cf" } as React.CSSProperties} />
+            <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-gray-900 mb-4">Book an Appointment</h2>
+              <div className="mb-6">
+                <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wider">Select Date</label>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  min={new Date().toISOString().split("T")[0]}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2"
+                  style={{ "--tw-ring-color": "#36d1cf" } as React.CSSProperties}
+                />
               </div>
+
               {slotsLoading ? (
-                <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" style={{ color: "#36d1cf" }} /></div>
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin" style={{ color: "#36d1cf" }} />
+                </div>
               ) : slots.length > 0 ? (
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
                   {slots.filter(s => s.is_available).map((slot) => (
-                    <button key={slot.start_time} onClick={() => handleBookSlot(slot)} className="py-3 px-2 border border-gray-200 rounded-lg hover:border-gray-400 transition-colors text-sm font-medium text-gray-700 hover:bg-gray-50">
+                    <button
+                      key={slot.start_time}
+                      onClick={() => handleBookSlot(slot)}
+                      className="py-3 px-2 border border-gray-200 rounded-xl hover:border-cyan-500 hover:bg-cyan-50/30 transition-all text-xs font-semibold text-gray-700 hover:text-cyan-700"
+                    >
                       {slot.start_time}
                     </button>
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500 text-center py-8">No available slots for this date</p>
+                <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                  <p className="text-sm font-medium text-gray-500">No available slots for this date</p>
+                </div>
               )}
             </div>
 
             {clinic.gallery_images && clinic.gallery_images.length > 0 && (
-              <div className="bg-white rounded-2xl border border-gray-200 p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Gallery</h2>
-                <div className="grid grid-cols-3 gap-4">
+              <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+                <h2 className="text-lg font-bold text-gray-900 mb-4">Clinic Gallery</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {clinic.gallery_images.map((img, i) => (
-                    <div key={i} className="aspect-video rounded-lg overflow-hidden bg-gray-100">
-                      <img src={img} alt="" className="w-full h-full object-cover" />
+                    <div key={i} className="aspect-video rounded-xl overflow-hidden bg-gray-100 border border-gray-100">
+                      <img src={img} alt={`Gallery ${i}`} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
                     </div>
                   ))}
                 </div>
@@ -376,18 +482,18 @@ export default function ClinicPage() {
           </div>
 
           <div>
-            <div className="bg-white rounded-2xl border border-gray-200 p-6">
-              <h3 className="font-semibold text-gray-900 mb-4">Contact</h3>
-              <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+              <h3 className="font-bold text-gray-900 mb-4">Contact Information</h3>
+              <div className="space-y-4 text-sm">
                 {clinic.phone && (
-                  <div className="flex items-center gap-3">
-                    <Phone className="w-5 h-5 text-gray-400" />
-                    <span className="text-gray-600">{clinic.phone}</span>
+                  <div className="flex items-center gap-3 text-gray-600">
+                    <Phone className="w-4 h-4 text-gray-400 shrink-0" />
+                    <span>{clinic.phone}</span>
                   </div>
                 )}
-                <div className="flex items-center gap-3">
-                  <MapPin className="w-5 h-5 text-gray-400" />
-                  <span className="text-gray-600">{clinic.address}, {clinic.city}</span>
+                <div className="flex items-start gap-3 text-gray-600">
+                  <MapPin className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
+                  <span>{clinic.address}, {clinic.city}</span>
                 </div>
               </div>
             </div>
@@ -395,21 +501,23 @@ export default function ClinicPage() {
         </div>
       </main>
 
+      {/* --- LIVE CHAT POPUP --- */}
       {showChat && (
-        <div className="fixed bottom-4 right-4 w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden z-50">
+        <div className="fixed bottom-4 right-4 w-96 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-4">
           <div className="p-4 flex items-center justify-between" style={{ backgroundColor: "#36d1cf" }}>
             <div>
-              <p className="font-semibold text-white">{clinic.doctors?.full_name}</p>
-              <p className="text-xs text-white/80">Chat with us</p>
+              <p className="font-bold text-white text-sm">{clinic.doctors?.full_name}</p>
+              <p className="text-xs text-white/80">Clinic Support Chat</p>
             </div>
-            <button onClick={() => setShowChat(false)} className="text-white hover:bg-white/20 p-1 rounded-lg transition-colors">✕</button>
+            <button onClick={() => setShowChat(false)} className="text-white hover:bg-white/20 p-1.5 rounded-lg transition-colors">✕</button>
           </div>
+          
           <div className="p-4 max-h-80 overflow-y-auto">
             {chatStep === "form" ? (
-              <div className="space-y-4">
-                <input type="text" value={chatName} onChange={(e) => setChatName(e.target.value)} placeholder="Your name" className="w-full px-4 py-2 border border-gray-200 rounded-lg" />
-                <input type="tel" value={chatPhone} onChange={(e) => setChatPhone(e.target.value)} placeholder="Your phone" className="w-full px-4 py-2 border border-gray-200 rounded-lg" />
-                <button onClick={handleStartChat} disabled={chatSending} className="w-full py-2 rounded-lg text-white font-medium flex items-center justify-center gap-2" style={{ backgroundColor: "#36d1cf" }}>
+              <div className="space-y-3">
+                <input type="text" value={chatName} onChange={(e) => setChatName(e.target.value)} placeholder="Your full name" className="w-full px-3.5 py-2 text-sm border border-gray-200 rounded-xl" />
+                <input type="tel" value={chatPhone} onChange={(e) => setChatPhone(e.target.value)} placeholder="Phone number" className="w-full px-3.5 py-2 text-sm border border-gray-200 rounded-xl" />
+                <button onClick={handleStartChat} disabled={chatSending} className="w-full py-2.5 rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm hover:opacity-90 transition-all" style={{ backgroundColor: "#36d1cf" }}>
                   {chatSending && <Loader2 className="w-4 h-4 animate-spin" />}
                   Start Chat
                 </button>
@@ -419,15 +527,15 @@ export default function ClinicPage() {
                 <div className="space-y-3">
                   {chatMessages.map((msg, i) => (
                     <div key={i} className={`flex ${msg.sender_type === "patient" ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[80%] px-4 py-2 rounded-xl ${msg.sender_type === "patient" ? "text-white" : "bg-gray-100 text-gray-900"}`} style={msg.sender_type === "patient" ? { backgroundColor: "#36d1cf" } : {}}>
-                        <p className="text-sm">{msg.content}</p>
+                      <div className={`max-w-[80%] px-3.5 py-2 rounded-2xl text-xs sm:text-sm ${msg.sender_type === "patient" ? "text-white" : "bg-gray-100 text-gray-900"}`} style={msg.sender_type === "patient" ? { backgroundColor: "#36d1cf" } : {}}>
+                        <p>{msg.content}</p>
                       </div>
                     </div>
                   ))}
                 </div>
                 <div className="mt-4 flex gap-2">
-                  <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type a message..." className="flex-1 px-4 py-2 border border-gray-200 rounded-lg" onKeyDown={(e) => e.key === "Enter" && handleSendChatMessage()} />
-                  <button onClick={handleSendChatMessage} disabled={chatSending} className="px-4 py-2 rounded-lg text-white flex items-center justify-center" style={{ backgroundColor: "#36d1cf" }}>
+                  <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type a message..." className="flex-1 px-3.5 py-2 text-sm border border-gray-200 rounded-xl" onKeyDown={(e) => e.key === "Enter" && handleSendChatMessage()} />
+                  <button onClick={handleSendChatMessage} disabled={chatSending} className="px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center justify-center" style={{ backgroundColor: "#36d1cf" }}>
                     {chatSending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send"}
                   </button>
                 </div>
