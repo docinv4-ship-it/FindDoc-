@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -23,35 +23,34 @@ export async function GET(request: Request) {
                 cookieStore.set(name, value, options)
               );
             } catch {
-              // Safe in server environment
+              // Server component context edge-case
             }
           },
         },
       }
     );
 
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data: { session }, error } = await supabase.auth.exchangeCodeForSession(code);
 
-    if (!error && data?.user) {
-      // Auto-inject patient role if metadata is missing (Google OAuth)
-      if (!data.user.user_metadata?.role) {
-        await supabase.auth.updateUser({
-          data: { role: "patient" },
+    if (!error && session?.user) {
+      const user = session.user;
+
+      // Ensure Patient record exists BEFORE sending user to Patient UI
+      const { data: patient } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (!patient) {
+        await supabase.from("patients").insert({
+          user_id: user.id,
+          email: user.email,
+          full_name: user.user_metadata?.full_name || user.user_metadata?.name || "Patient",
         });
-      }
-
-      const forwardedHost = request.headers.get("x-forwarded-host");
-      const isLocalEnv = process.env.NODE_ENV === "development";
-
-      if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${next}`);
-      } else if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${next}`);
-      } else {
-        return NextResponse.redirect(`${origin}${next}`);
       }
     }
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth_failed`);
+  return NextResponse.redirect(`${origin}${next}`);
 }
