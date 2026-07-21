@@ -3,14 +3,14 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, usePathname } from "next/navigation";
-import { Loader2, Search, MapPin, Stethoscope, User, Star, Calendar, Bell, ShieldAlert, LogOut } from "lucide-react";
+import { Loader2, Search, MapPin, Stethoscope, User, Star, Calendar, ShieldAlert, LogOut } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import type { Database } from "@/types/database";
 
 type Doctor = Database["public"]["Tables"]["doctors"]["Row"];
 
 interface DoctorWithClinic extends Doctor {
-  clinics: { id: string; name: string; address: string; city: string; consultation_fee: number }[];
+  clinics: { id: string; slug?: string; name: string; address: string; city: string; consultation_fee: number }[];
   featured_listings?: { status: string; expires_at: string }[];
 }
 
@@ -50,7 +50,7 @@ export default function PatientSearchPage() {
         console.log("🔍 [Pipeline Level 0]: Fetching active onboarded doctors...");
         const attempt1 = await supabase
           .from("doctors")
-          .select(`*, clinics (id, name, address, city, consultation_fee), featured_listings (status, expires_at)`)
+          .select(`*, clinics (id, slug, name, address, city, consultation_fee), featured_listings (status, expires_at)`)
           .eq("is_onboarded", true);
 
         doctorsData = attempt1.data;
@@ -61,7 +61,7 @@ export default function PatientSearchPage() {
           console.warn("⚠️ [Pipeline Fallback Level 1]: Retrying without 'is_onboarded' constraint...");
           const attempt2 = await supabase
             .from("doctors")
-            .select(`*, clinics (id, name, address, city, consultation_fee), featured_listings (status, expires_at)`);
+            .select(`*, clinics (id, slug, name, address, city, consultation_fee), featured_listings (status, expires_at)`);
 
           doctorsData = attempt2.data;
           fetchError = attempt2.error;
@@ -72,7 +72,7 @@ export default function PatientSearchPage() {
           console.warn("⚠️ [Pipeline Fallback Level 2]: Retrying without 'featured_listings' relation...");
           const attempt3 = await supabase
             .from("doctors")
-            .select(`*, clinics (id, name, address, city, consultation_fee)`);
+            .select(`*, clinics (id, slug, name, address, city, consultation_fee)`);
 
           doctorsData = attempt3.data;
           fetchError = attempt3.error;
@@ -83,7 +83,7 @@ export default function PatientSearchPage() {
           console.warn("⚠️ [Pipeline Fallback Level 3]: Retrying with singular 'clinic' relation join...");
           const attempt4 = await supabase
             .from("doctors")
-            .select(`*, clinic (id, name, address, city, consultation_fee)`);
+            .select(`*, clinic (id, slug, name, address, city, consultation_fee)`);
 
           if (attempt4.data && attempt4.data.length > 0) {
             doctorsData = attempt4.data.map((doc: any) => ({
@@ -102,7 +102,7 @@ export default function PatientSearchPage() {
           const attempt5 = await supabase
             .from("doctors")
             .select(`*`);
-          
+
           doctorsData = attempt5.data;
           fetchError = attempt5.error;
         }
@@ -156,9 +156,9 @@ export default function PatientSearchPage() {
         setLoading(false);
       }
     };
-    
+
     fetchDataAndSession();
-  }, [supabase]);
+  }, []); // Fixed: empty array to avoid re-render loops
 
   const handleLogout = async () => {
     try {
@@ -327,6 +327,9 @@ export default function PatientSearchPage() {
             {filteredDoctors.map((doctor) => {
               const primaryClinic = doctor.clinics?.[0];
               const featured = isDoctorFeatured(doctor);
+              // Target slug fallback: primaryClinic.slug -> primaryClinic.id -> doctor.id
+              const targetSlug = primaryClinic?.slug || primaryClinic?.id || doctor.id;
+
               return (
                 <div key={doctor.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow relative flex flex-col justify-between">
                   {featured && (
@@ -372,7 +375,7 @@ export default function PatientSearchPage() {
 
                   <div className="px-5 pb-5 pt-1">
                     <button 
-                      onClick={() => handleProtectedAction(`/doctor/${doctor.id}`)} 
+                      onClick={() => handleProtectedAction(`/clinic/${targetSlug}`)} 
                       className="w-full py-2.5 text-white font-semibold rounded-lg transition-all text-sm shadow-sm hover:brightness-105 active:scale-[0.98] border-0 cursor-pointer"
                       style={{ backgroundColor: "#36d1cf" }}
                     >
