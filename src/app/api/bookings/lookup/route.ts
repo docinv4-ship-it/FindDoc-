@@ -3,9 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase: any = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     const { searchParams } = new URL(request.url);
     const email = searchParams.get("email") || user?.email;
     const userId = searchParams.get("userId") || user?.id;
@@ -14,34 +15,51 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ appointments: [] }, { status: 200 });
     }
 
-    // Dynamic filtering based on available identity
-    let query = supabase
-      .from("appointments")
-      .select(`
-        id, appointment_date, start_time, end_time, status, reason_for_visit,
-        clinics(name, address),
-        doctors(full_name, specialization)
-      `);
+    // 🎯 Step 1: Pehle 'patients' table se patient ki real IDs nikalo (by user_id OR email)
+    let patientQuery = supabase.from("patients").select("id");
 
-    // Applying filters based on schema (Fixed to match SQL above)
     if (userId && email) {
-      query = query.or(`patient_id.eq.${userId},patient_email.eq.${email}`);
+      patientQuery = patientQuery.or(`user_id.eq.${userId},email.eq.${email}`);
     } else if (userId) {
-      query = query.eq("patient_id", userId);
+      patientQuery = patientQuery.eq("user_id", userId);
     } else {
-      query = query.eq("patient_email", email);
+      patientQuery = patientQuery.eq("email", email);
     }
 
-    const { data, error } = await query.order("appointment_date", { ascending: false });
+    const { data: patientRecords, error: patientError } = await patientQuery;
 
-    // Handle DB Errors gracefully (No more red banners)
-    if (error) {
-      console.error("DB Error:", error);
+    if (patientError || !patientRecords || patientRecords.length === 0) {
       return NextResponse.json({ appointments: [] }, { status: 200 });
     }
 
-    return NextResponse.json({ appointments: data || [] }, { status: 200 });
+    // Extract all matching patient IDs
+    const patientIds = patientRecords.map((p: { id: string }) => p.id);
+
+    // 🎯 Step 2: Ab 'appointments' table se patient_id ki base par appointments fetch karo
+    const { data: appointments, error: apptError } = await supabase
+      .from("appointments")
+      .select(`
+        id, 
+        appointment_date, 
+        start_time, 
+        end_time, 
+        status, 
+        reason_for_visit,
+        clinics(id, name, address, city),
+        doctors(id, full_name, specialization)
+      `)
+      .in("patient_id", patientIds)
+      .order("appointment_date", { ascending: false });
+
+    if (apptError) {
+      console.error("Error fetching appointments:", apptError);
+      return NextResponse.json({ appointments: [] }, { status: 200 });
+    }
+
+    return NextResponse.json({ appointments: appointments || [] }, { status: 200 });
+
   } catch (e) {
+    console.error("Booking Lookup Critical Error:", e);
     return NextResponse.json({ appointments: [] }, { status: 200 });
   }
 }
