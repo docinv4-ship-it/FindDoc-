@@ -3,43 +3,54 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { getGlobalCountries, getGlobalStates, getGlobalCities } from "@/lib/locations";
-import { MapPin, Coins, Loader2, Globe, Building2, Map, Search, Maximize2, X, CheckCircle2 } from "lucide-react";
+import { MapPin, Coins, Loader2, Globe, Building2, Map, Search, Maximize2, X, CheckCircle2, Clock } from "lucide-react";
 
 const ClinicMap = dynamic(() => import("@/components/ClinicMap"), { ssr: false });
 
 export interface LocationState {
   country: string;
-  countryIso: string;
-  province: string;
-  provinceIso: string;
-  zone: string;
-  streetAddress: string;
-  zipCode: string;
-  latitude: number;
-  longitude: number;
-  currency: string;
+  countryIso?: string;
+  state: string;
+  stateIso?: string;
+  city: string;
+  address: string;
+  postalCode: string;
+  latitude: number | string;
+  longitude: number | string;
+  currency?: string;
+  timezone?: string;
 }
 
+// Fixed Props to match the page.tsx exact requirements
 interface LocationStepProps {
-  locationData: LocationState;
-  setLocationData: React.Dispatch<React.SetStateAction<LocationState>>;
+  location: any;
+  setLocation: React.Dispatch<React.SetStateAction<any>>;
 }
 
-export default function LocationStep({ locationData, setLocationData }: LocationStepProps) {
+const timezones = [
+  "Pacific/Midway", "Pacific/Honolulu", "America/Anchorage", "America/Los_Angeles",
+  "America/Denver", "America/Chicago", "America/New_York", "America/Caracas",
+  "America/Sao_Paulo", "Europe/London", "Europe/Paris", "Africa/Cairo",
+  "Europe/Moscow", "Asia/Dubai", "Asia/Karachi", "Asia/Kolkata", "Asia/Dhaka",
+  "Asia/Bangkok", "Asia/Hong_Kong", "Asia/Tokyo", "Australia/Sydney",
+  "Pacific/Noumea", "Pacific/Auckland", "UTC"
+];
+
+export default function LocationStep({ location: locationData, setLocation: setLocationData }: LocationStepProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [mapZoom, setMapZoom] = useState(5); 
   const [mapSearchQuery, setMapSearchQuery] = useState("");
 
   // 📍 Map Tracking States
-  const [tempCoords, setTempCoords] = useState({ lat: locationData.latitude || 30.3753, lng: locationData.longitude || 69.3451 });
+  const [tempCoords, setTempCoords] = useState({ lat: Number(locationData.latitude) || 30.3753, lng: Number(locationData.longitude) || 69.3451 });
   const [previewAddress, setPreviewAddress] = useState("");
   const [isMapMoving, setIsMapMoving] = useState(false);
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
-  
+
   // 🎯 ELON LEVEL FIX: Tracks if location is confirmed AND if card should be completely hidden
   const [isLocationConfirmed, setIsLocationConfirmed] = useState(false);
   const [isCardHidden, setIsCardHidden] = useState(false);
-  
+
   // Safe Timer Ref to prevent memory leaks
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -52,7 +63,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
 
   const countries = useMemo(() => getGlobalCountries(), []);
   const states = useMemo(() => locationData.countryIso ? getGlobalStates(locationData.countryIso) : [], [locationData.countryIso]);
-  const cities = useMemo(() => (locationData.countryIso && locationData.provinceIso) ? getGlobalCities(locationData.countryIso, locationData.provinceIso) : [], [locationData.countryIso, locationData.provinceIso]);
+  const cities = useMemo(() => (locationData.countryIso && locationData.stateIso) ? getGlobalCities(locationData.countryIso, locationData.stateIso) : [], [locationData.countryIso, locationData.stateIso]);
 
   // 🌍 HELPER: Smooth Background Geocoder for Dropdowns & Search
   const smoothMapFlight = async (query: string, targetZoom: number) => {
@@ -80,21 +91,21 @@ export default function LocationStep({ locationData, setLocationData }: Location
   const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedIso = e.target.value;
     const countryObj = countries.find((c) => c.isoCode === selectedIso);
-    setLocationData({ ...locationData, country: countryObj ? countryObj.name : "", countryIso: selectedIso, currency: countryObj ? countryObj.currency : "", province: "", provinceIso: "", zone: "", streetAddress: "", zipCode: "" });
+    setLocationData({ ...locationData, country: countryObj ? countryObj.name : "", countryIso: selectedIso, currency: countryObj ? countryObj.currency : "", state: "", stateIso: "", city: "", address: "", postalCode: "" });
     if (countryObj) smoothMapFlight(countryObj.name, 5); 
   };
 
   const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedIso = e.target.value;
     const stateObj = states.find((s) => s.isoCode === selectedIso);
-    setLocationData({ ...locationData, province: stateObj ? stateObj.name : "", provinceIso: selectedIso, zone: "", streetAddress: "", zipCode: "" });
+    setLocationData({ ...locationData, state: stateObj ? stateObj.name : "", stateIso: selectedIso, city: "", address: "", postalCode: "" });
     if (stateObj) smoothMapFlight(`${stateObj.name}, ${locationData.country}`, 8); 
   };
 
   const handleCityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const cityName = e.target.value;
-    setLocationData({ ...locationData, zone: cityName, streetAddress: "", zipCode: "" });
-    if (cityName) smoothMapFlight(`${cityName}, ${locationData.province}, ${locationData.country}`, 12); 
+    setLocationData({ ...locationData, city: cityName, address: "", postalCode: "" });
+    if (cityName) smoothMapFlight(`${cityName}, ${locationData.state}, ${locationData.country}`, 12); 
   };
 
   const executeSearch = async (searchQuery: string, zoomLvl: number) => {
@@ -121,15 +132,15 @@ export default function LocationStep({ locationData, setLocationData }: Location
   };
 
   const handleFormSearchLocation = () => {
-    if (!locationData.country || !locationData.zone || !locationData.streetAddress) {
+    if (!locationData.country || !locationData.city || !locationData.address) {
       alert("Please select City and enter a Street Address first.");
       return;
     }
-    executeSearch(`${locationData.streetAddress}, ${locationData.zone}, ${locationData.country}`, 15);
+    executeSearch(`${locationData.address}, ${locationData.city}, ${locationData.country}`, 15);
   };
 
   const handleMapDirectSearch = () => {
-    executeSearch(`${mapSearchQuery}, ${locationData.zone || ''}, ${locationData.country || ''}`.trim(), 15);
+    executeSearch(`${mapSearchQuery}, ${locationData.city || ''}, ${locationData.country || ''}`.trim(), 15);
   };
 
   // -----------------------------------------------------------------
@@ -162,21 +173,21 @@ export default function LocationStep({ locationData, setLocationData }: Location
   // ✅ CONFIRM ACTION (WITH AUTO HIDE LOGIC)
   // -----------------------------------------------------------------
   const handleConfirmLocation = () => {
-    setLocationData(prev => ({
+    setLocationData((prev: any) => ({
       ...prev,
       latitude: tempCoords.lat,
       longitude: tempCoords.lng,
-      streetAddress: previewAddress !== "Fetching address..." && previewAddress !== "Coordinates selected" 
+      address: previewAddress !== "Fetching address..." && previewAddress !== "Coordinates selected" 
         ? previewAddress 
-        : prev.streetAddress
+        : prev.address
     }));
-    
+
     // 1. Show the Green Success State Instantly
     setIsLocationConfirmed(true); 
-    
+
     // 2. Clear any existing timer
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    
+
     // 3. Auto Hide the completely card after 1.2 seconds
     hideTimerRef.current = setTimeout(() => {
       setIsCardHidden(true); // Triggers the CSS transform to slide it down and fade out
@@ -198,7 +209,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">Country</label>
           <div className="relative">
             <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <select value={locationData.countryIso} onChange={handleCountryChange} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50">
+            <select value={locationData.countryIso || ""} onChange={handleCountryChange} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50">
               <option value="">Select a Country...</option>
               {countries.map((c) => <option key={c.isoCode} value={c.isoCode}>{c.name}</option>)}
             </select>
@@ -218,7 +229,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">State / Province</label>
           <div className="relative">
             <Map className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <select value={locationData.provinceIso} onChange={handleStateChange} disabled={!locationData.countryIso} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50 disabled:bg-gray-100">
+            <select value={locationData.stateIso || ""} onChange={handleStateChange} disabled={!locationData.countryIso} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50 disabled:bg-gray-100">
               <option value="">Select State...</option>
               {states.map((s) => <option key={s.isoCode} value={s.isoCode}>{s.name}</option>)}
             </select>
@@ -228,7 +239,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">City / Zone</label>
           <div className="relative">
             <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <select value={locationData.zone} onChange={handleCityChange} disabled={!locationData.provinceIso} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50 disabled:bg-gray-100">
+            <select value={locationData.city || ""} onChange={handleCityChange} disabled={!locationData.stateIso} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50 disabled:bg-gray-100">
               <option value="">Select City...</option>
               {cities.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
             </select>
@@ -237,13 +248,13 @@ export default function LocationStep({ locationData, setLocationData }: Location
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-end">
-        <div className="md:col-span-6">
+        <div className="md:col-span-4">
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">Street Address</label>
           <input 
             type="text" 
             placeholder="e.g. Behram Medical Center" 
-            value={locationData.streetAddress} 
-            onChange={(e) => setLocationData({ ...locationData, streetAddress: e.target.value })}
+            value={locationData.address || ""} 
+            onChange={(e) => setLocationData({ ...locationData, address: e.target.value })}
             className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500"
           />
         </div>
@@ -252,19 +263,32 @@ export default function LocationStep({ locationData, setLocationData }: Location
           <input 
             type="text" 
             placeholder="e.g. 26000" 
-            value={locationData.zipCode} 
-            onChange={(e) => setLocationData({ ...locationData, zipCode: e.target.value })}
+            value={locationData.postalCode || ""} 
+            onChange={(e) => setLocationData({ ...locationData, postalCode: e.target.value })}
             className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500"
           />
         </div>
         <div className="md:col-span-3">
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Time Zone</label>
+          <div className="relative">
+            <Clock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <select 
+              value={locationData.timezone || "Asia/Karachi"} 
+              onChange={(e) => setLocationData({ ...locationData, timezone: e.target.value })}
+              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary-500 bg-gray-50/50"
+            >
+              {timezones.map(tz => <option key={tz} value={tz}>{tz}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="md:col-span-2">
           <button 
             onClick={handleFormSearchLocation} 
-            disabled={isFetchingAddress || !locationData.streetAddress}
+            disabled={isFetchingAddress || !locationData.address}
             className="w-full bg-gray-900 hover:bg-gray-800 text-white flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isFetchingAddress ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
-            Find Map
+            Find
           </button>
         </div>
       </div>
@@ -317,7 +341,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
                   </button>
                 </div>
               )}
-              
+
               <div className="flex-1 h-full w-full relative overflow-hidden">
                 <ClinicMap 
                   lat={tempCoords.lat} 
@@ -370,7 +394,7 @@ export default function LocationStep({ locationData, setLocationData }: Location
                       </p>
                     </div>
                   </div>
-                  
+
                   {/* The button itself smoothly compresses */}
                   <div className={`grid transition-all duration-300 ease-in-out ${isLocationConfirmed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100 mt-3'}`}>
                     <div className="overflow-hidden">
