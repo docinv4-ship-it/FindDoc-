@@ -1,3 +1,38 @@
+// lib/timezone.ts
+
+export interface TimezoneOption {
+  value: string;
+  label: string;
+}
+
+export function getAllTimezones(): TimezoneOption[] {
+  if (typeof Intl === "undefined" || typeof Intl.supportedValuesOf !== "function") {
+    return [{ value: "UTC", label: "(GMT) UTC" }];
+  }
+
+  const timezones = Intl.supportedValuesOf("timeZone");
+
+  return timezones.map((tz) => {
+    try {
+      // Har timezone ka exact GMT offset nikalne ke liye
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "shortOffset",
+      });
+      const parts = formatter.formatToParts(new Date());
+      const offset = parts.find((p) => p.type === "timeZoneName")?.value || "GMT";
+
+      return {
+        value: tz, // Database ke liye (e.g., "Asia/Karachi")
+        label: `(${offset}) ${tz.replace(/_/g, " ")}`, // Dropdown UI ke liye (e.g., "(GMT+5) Asia Karachi")
+      };
+    } catch {
+      // Agar kisi timezone me error aye to usko softly handle kare
+      return { value: tz, label: tz.replace(/_/g, " ") };
+    }
+  });
+}
+
 export function getTimezone(): string {
   if (typeof window === "undefined") {
     return "UTC";
