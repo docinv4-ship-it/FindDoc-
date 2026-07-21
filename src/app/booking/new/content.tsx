@@ -33,52 +33,73 @@ export default function BookingFormContent() {
 
   useEffect(() => {
     const fetchData = async () => {
-      // 1. Session check & Safe Profile Fetch
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setPatientEmail(session.user.email || "");
-        setPatientName(
-          session.user.user_metadata?.full_name ||
-          session.user.user_metadata?.name ||
-          ""
-        );
+      try {
+        setLoading(true);
+        setError(null);
 
-        // Fetch saved phone from patients table safely if available
-        const { data: patientProfile } = await supabase
-          .from("patients")
-          .select("phone, full_name")
-          .eq("user_id", session.user.id)
-          .maybeSingle();
+        // 1. Session check & Safe Profile Fetch
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setPatientEmail(session.user.email || "");
+          setPatientName(session.user.user_metadata?.full_name || session.user.user_metadata?.name || "");
 
-        if (patientProfile) {
-          if (patientProfile.phone) setPatientPhone(patientProfile.phone);
-          if (patientProfile.full_name) setPatientName(patientProfile.full_name);
+          const { data: patientProfile } = await supabase
+            .from("patients")
+            .select("phone, full_name")
+            .eq("user_id", session.user.id)
+            .maybeSingle();
+
+          if (patientProfile) {
+            if (patientProfile.phone) setPatientPhone(patientProfile.phone);
+            if (patientProfile.full_name) setPatientName(patientProfile.full_name);
+          }
         }
+
+        // 2. Query Params validation
+        const doctorId = searchParams.get("doctor_id");
+        const clinicId = searchParams.get("clinic_id");
+        const slotDate = searchParams.get("date");
+        const slotStart = searchParams.get("start_time");
+        const slotEnd = searchParams.get("end_time");
+
+        if (!doctorId || !clinicId || !slotDate || !slotStart || !slotEnd) {
+          router.push("/patient");
+          return;
+        }
+
+        setDate(slotDate);
+        setStartTime(slotStart);
+        setEndTime(slotEnd);
+
+        // 3. Fetch Doctor and Clinic Strictly
+        const { data: doctorData, error: docErr } = await supabase.from("doctors").select("*").eq("id", doctorId).maybeSingle();
+        const { data: clinicData, error: clinicErr } = await supabase.from("clinics").select("*").eq("id", clinicId).maybeSingle();
+
+        if (docErr || !doctorData) {
+          setError("Doctor information could not be loaded. Please try again.");
+          setLoading(false);
+          return;
+        }
+        
+        if (clinicErr || !clinicData) {
+          setError("Clinic information could not be loaded. Please try again.");
+          setLoading(false);
+          return;
+        }
+
+        setDoctor(doctorData); 
+        setDoctorName(doctorData.full_name || "Doctor");
+        setClinic(clinicData); 
+        setClinicName(clinicData.name || "Clinic");
+
+      } catch (err) {
+        console.error("Initialization Error:", err);
+        setError("Something went wrong while loading the form.");
+      } finally {
+        setLoading(false);
       }
-
-      // 2. Query Params validation
-      const doctorId = searchParams.get("doctor_id");
-      const clinicId = searchParams.get("clinic_id");
-      const slotDate = searchParams.get("date");
-      const slotStart = searchParams.get("start_time");
-      const slotEnd = searchParams.get("end_time");
-
-      if (!doctorId || !clinicId || !slotDate || !slotStart || !slotEnd) {
-        router.push("/patient");
-        return;
-      }
-
-      setDate(slotDate);
-      setStartTime(slotStart);
-      setEndTime(slotEnd);
-
-      const { data: doctorData } = await supabase.from("doctors").select("*").eq("id", doctorId).maybeSingle();
-      const { data: clinicData } = await supabase.from("clinics").select("*").eq("id", clinicId).maybeSingle();
-
-      if (doctorData) { setDoctor(doctorData); setDoctorName(doctorData.full_name || "Doctor"); }
-      if (clinicData) { setClinic(clinicData); setClinicName(clinicData.name || "Clinic"); }
-      setLoading(false);
     };
+    
     fetchData();
   }, [searchParams, router, supabase]);
 
@@ -89,23 +110,29 @@ export default function BookingFormContent() {
       setPatientPhone("");
     } else {
       supabase.auth.getSession().then(({ data }: any) => {
-        setPatientName(
-          data.session?.user?.user_metadata?.full_name ||
-          data.session?.user?.user_metadata?.name ||
-          ""
-        );
+        setPatientName(data.session?.user?.user_metadata?.full_name || data.session?.user?.user_metadata?.name || "");
       });
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!doctor || !clinic || !patientName.trim() || !patientPhone.trim()) {
-      setError("Please fill in all required fields.");
+    setError(null);
+
+    const submittedName = patientName.trim();
+    const submittedPhone = patientPhone.trim();
+
+    if (!doctor || !clinic) {
+      setError("Session invalid. Please refresh the page.");
       return;
     }
+
+    if (!submittedName || !submittedPhone) {
+      setError("Please provide both Patient Name and Phone Number.");
+      return;
+    }
+
     setSubmitting(true);
-    setError(null);
 
     try {
       const response = await fetch("/api/book", {
@@ -114,11 +141,12 @@ export default function BookingFormContent() {
         body: JSON.stringify({
           doctor_id: doctor.id,
           clinic_id: clinic.id,
-          appointment_date: date,
+          date: date, // Ensuring strictly expected keys are sent
+          appointment_date: date, // Fallback for safety
           start_time: startTime,
           end_time: endTime,
-          patient_name: patientName.trim(),
-          patient_phone: patientPhone.trim(),
+          patient_name: submittedName,
+          patient_phone: submittedPhone,
           patient_email: patientEmail.trim() || null,
           reason_for_visit: reason.trim() || null,
           booking_for: bookingFor,
@@ -126,15 +154,17 @@ export default function BookingFormContent() {
       });
 
       const data = await response.json();
+      
       if (response.ok && data.appointment) {
         const { appointment } = data;
         const statusPath = appointment.status === "confirmed" ? "success" : "pending";
         router.push(`/booking/${statusPath}?appointment_id=${appointment.id}&date=${date}&start_time=${startTime}&end_time=${endTime}&doctor_name=${encodeURIComponent(doctorName)}&clinic_name=${encodeURIComponent(clinicName)}`);
       } else {
-        setError(data.error || "Failed to book appointment");
+        setError(data.error || "Failed to book appointment. Please check your details.");
       }
-    } catch {
-      setError("An error occurred. Please try again.");
+    } catch (err) {
+      console.error("Submit Error:", err);
+      setError("A network error occurred. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -144,6 +174,20 @@ export default function BookingFormContent() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-cyan-600" />
+      </div>
+    );
+  }
+
+  // If loading is done but doctor/clinic is missing due to error
+  if (error && (!doctor || !clinic)) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-medium mb-4 max-w-md text-center border border-red-100 shadow-sm">
+          {error}
+        </div>
+        <button onClick={() => router.push('/patient')} className="px-6 py-2.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-black transition-colors">
+          Return to Dashboard
+        </button>
       </div>
     );
   }
@@ -160,14 +204,13 @@ export default function BookingFormContent() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Doctor Details */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
           <div className="p-5 border-b border-gray-100 bg-gray-50/50">
             <h2 className="text-base font-semibold text-gray-900">Appointment Details</h2>
           </div>
           <div className="p-6 space-y-4">
             <div className="flex items-start gap-4">
-              <div className="w-12 h-12 bg-cyan-50 rounded-xl flex items-center justify-center text-cyan-600">
+              <div className="w-12 h-12 bg-cyan-50 rounded-xl flex items-center justify-center text-cyan-600 shrink-0">
                 <Stethoscope className="w-6 h-6" />
               </div>
               <div>
@@ -185,14 +228,11 @@ export default function BookingFormContent() {
           </div>
         </div>
 
-        {/* Patient Info Form */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-100 bg-gray-50/50">
             <h2 className="text-base font-semibold text-gray-900">Your Information</h2>
           </div>
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
-
-            {/* Toggle Field */}
             <div className="flex bg-gray-100 p-1 rounded-xl">
               <button
                 type="button"
@@ -272,7 +312,7 @@ export default function BookingFormContent() {
             </div>
 
             {error && (
-              <div className="p-3 bg-red-50 text-red-600 text-xs rounded-xl font-medium">
+              <div className="p-3 bg-red-50 text-red-600 text-xs rounded-xl font-medium border border-red-100">
                 {error}
               </div>
             )}
@@ -280,7 +320,7 @@ export default function BookingFormContent() {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-3 bg-gray-900 hover:bg-black disabled:bg-gray-400 text-white font-medium text-sm rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm"
+              className="w-full py-3 bg-gray-900 hover:bg-black disabled:bg-gray-400 text-white font-medium text-sm rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
             >
               {submitting ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
