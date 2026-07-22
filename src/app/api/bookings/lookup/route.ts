@@ -9,10 +9,16 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     
-    const email = searchParams.get("email") || user?.email || "shopme924@gmail.com";
+    // 1. Target Email / UserId resolution
+    const email = searchParams.get("email") || user?.email;
     const userId = searchParams.get("userId") || user?.id;
 
-    // 🎯 EXACT FIX: doctors!doctor_id explicit relationship hint
+    // Agar na email mil sake na userId, toh empty return karein
+    if (!email && !userId) {
+      return NextResponse.json({ appointments: [] }, { status: 200 });
+    }
+
+    // 2. Primary Query (Constraint: doctor_id)
     const { data: appointments, error: apptError } = await supabase
       .from("appointments")
       .select(`
@@ -29,8 +35,10 @@ export async function GET(request: NextRequest) {
       .or(`patient_email.eq.${email},patient_id.eq.${userId}`)
       .order("appointment_date", { ascending: false });
 
-    // Fallback in case constraint name is required instead of column name
+    // 3. Fail-safe Fallback (Constraint Name: appointments_doctor_id_fkey)
     if (apptError) {
+      console.warn("Primary join failed, attempting fallback constraint name...", apptError.message);
+      
       const { data: fallbackAppts, error: fallbackError } = await supabase
         .from("appointments")
         .select(`
@@ -48,19 +56,17 @@ export async function GET(request: NextRequest) {
         .order("appointment_date", { ascending: false });
 
       if (fallbackError) {
-        return NextResponse.json({ 
-          error: `SQL QUERY ERROR: ${apptError.message}` 
-        }, { status: 400 });
+        console.error("Fallback join also failed:", fallbackError.message);
+        return NextResponse.json({ appointments: [] }, { status: 200 });
       }
 
-      return NextResponse.json({ appointments: fallbackAppts }, { status: 200 });
+      return NextResponse.json({ appointments: fallbackAppts || [] }, { status: 200 });
     }
 
     return NextResponse.json({ appointments: appointments || [] }, { status: 200 });
 
-  } catch (e: any) {
-    return NextResponse.json({ 
-      error: `SERVER EXCEPTION: ${e?.message || "Unknown error"}` 
-    }, { status: 500 });
+  } catch (e) {
+    console.error("Critical Lookup API Error:", e);
+    return NextResponse.json({ appointments: [] }, { status: 200 });
   }
 }
