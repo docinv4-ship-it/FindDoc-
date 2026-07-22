@@ -9,11 +9,10 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     
-    // Fallback: searchParam -> auth session -> hardcoded test email
     const email = searchParams.get("email") || user?.email || "shopme924@gmail.com";
     const userId = searchParams.get("userId") || user?.id;
 
-    // 🎯 QUERY: Query database directly
+    // 🎯 EXACT FIX: doctors!doctor_id explicit relationship hint
     const { data: appointments, error: apptError } = await supabase
       .from("appointments")
       .select(`
@@ -25,26 +24,39 @@ export async function GET(request: NextRequest) {
         reason_for_visit,
         patient_email,
         clinics!appointments_clinic_id_fkey(id, name, address, city),
-        doctors(id, full_name, specialization)
+        doctors!doctor_id(id, full_name, specialization)
       `)
       .or(`patient_email.eq.${email},patient_id.eq.${userId}`)
       .order("appointment_date", { ascending: false });
 
-    // ❌ AGAR SQL JOIN MEIN ERROR AAYA TOH SCREEN PAR SHOW KARO
+    // Fallback in case constraint name is required instead of column name
     if (apptError) {
-      return NextResponse.json({ 
-        error: `SQL QUERY ERROR: ${apptError.message} | Details: ${apptError.details || apptError.hint || "None"}` 
-      }, { status: 400 });
+      const { data: fallbackAppts, error: fallbackError } = await supabase
+        .from("appointments")
+        .select(`
+          id, 
+          appointment_date, 
+          start_time, 
+          end_time, 
+          status, 
+          reason_for_visit,
+          patient_email,
+          clinics!appointments_clinic_id_fkey(id, name, address, city),
+          doctors!appointments_doctor_id_fkey(id, full_name, specialization)
+        `)
+        .or(`patient_email.eq.${email},patient_id.eq.${userId}`)
+        .order("appointment_date", { ascending: false });
+
+      if (fallbackError) {
+        return NextResponse.json({ 
+          error: `SQL QUERY ERROR: ${apptError.message}` 
+        }, { status: 400 });
+      }
+
+      return NextResponse.json({ appointments: fallbackAppts }, { status: 200 });
     }
 
-    // ❌ AGAR DATA 0 AAYA TOH REASON DHOONDO
-    if (!appointments || appointments.length === 0) {
-      return NextResponse.json({ 
-        error: `ZERO MATCHES: Database search ran for Email (${email}) but returned 0 rows.` 
-      }, { status: 400 });
-    }
-
-    return NextResponse.json({ appointments }, { status: 200 });
+    return NextResponse.json({ appointments: appointments || [] }, { status: 200 });
 
   } catch (e: any) {
     return NextResponse.json({ 
