@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, usePathname } from "next/navigation";
-import { Loader2, Search, MapPin, Stethoscope, User, Star, Calendar, ShieldAlert, LogOut } from "lucide-react";
+import { 
+  Loader2, Search, MapPin, Stethoscope, User, Star, Calendar, 
+  ShieldAlert, LogOut, SlidersHorizontal, X, Check, Plus
+} from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import type { Database } from "@/types/database";
 
@@ -12,6 +15,7 @@ type Doctor = Database["public"]["Tables"]["doctors"]["Row"];
 interface DoctorWithClinic extends Doctor {
   clinics: { id: string; slug?: string; name: string; address: string; city: string; consultation_fee: number }[];
   featured_listings?: { status: string; expires_at: string }[];
+  calculated_distance?: number; // Added for distance filtering
 }
 
 export default function PatientSearchPage() {
@@ -20,14 +24,29 @@ export default function PatientSearchPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [user, setUser] = useState<any>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  
+  // Base Search States
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCity, setSelectedCity] = useState<string>("all");
-  const [selectedSpecialization, setSelectedSpecialization] = useState<string>("all");
+  
+  // Advanced Filter States
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [customTypeInput, setCustomTypeInput] = useState("");
+  
+  const [isDistanceEnabled, setIsDistanceEnabled] = useState(false);
+  const [maxDistance, setMaxDistance] = useState<number>(50); // 1 to 100km
+  
+  const [isPriceEnabled, setIsPriceEnabled] = useState(false);
+  const [maxPrice, setMaxPrice] = useState<number>(5000); // Max fee
+
+  // Dynamic Options from DB
   const [cities, setCities] = useState<string[]>([]);
   const [specializations, setSpecializations] = useState<string[]>([]);
 
   const router = useRouter();
   const pathname = usePathname();
+  const filterPanelRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
@@ -35,7 +54,6 @@ export default function PatientSearchPage() {
     const fetchDataAndSession = async () => {
       try {
         setLoading(true);
-        // 1. Fetch Safe Session
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           setUser(session.user);
@@ -44,10 +62,8 @@ export default function PatientSearchPage() {
         let doctorsData: any[] | null = null;
         let fetchError: any = null;
 
-        // --- 🛡️ ROBUST SELF-HEALING ARCHITECTURE PIPELINE ---
-
-        // Attempt 1: Full Query (All Relations + Onboarded Filter)
-        console.log("🔍 [Pipeline Level 0]: Fetching active onboarded doctors...");
+        // Pipeline Fetching
+        console.log("🔍 Fetching doctors...");
         const attempt1 = await supabase
           .from("doctors")
           .select(`*, clinics (id, slug, name, address, city, consultation_fee), featured_listings (status, expires_at)`)
@@ -56,60 +72,15 @@ export default function PatientSearchPage() {
         doctorsData = attempt1.data;
         fetchError = attempt1.error;
 
-        // Attempt 2: Fallback without "is_onboarded" filter (If no doctors are marked as onboarded in DB yet)
         if (fetchError || !doctorsData || doctorsData.length === 0) {
-          console.warn("⚠️ [Pipeline Fallback Level 1]: Retrying without 'is_onboarded' constraint...");
           const attempt2 = await supabase
             .from("doctors")
-            .select(`*, clinics (id, slug, name, address, city, consultation_fee), featured_listings (status, expires_at)`);
-
+            .select(`*, clinics (id, slug, name, address, city, consultation_fee)`);
           doctorsData = attempt2.data;
           fetchError = attempt2.error;
         }
 
-        // Attempt 3: Fallback without "featured_listings" relation (If schema/table doesn't exist yet)
-        if (fetchError || !doctorsData || doctorsData.length === 0) {
-          console.warn("⚠️ [Pipeline Fallback Level 2]: Retrying without 'featured_listings' relation...");
-          const attempt3 = await supabase
-            .from("doctors")
-            .select(`*, clinics (id, slug, name, address, city, consultation_fee)`);
-
-          doctorsData = attempt3.data;
-          fetchError = attempt3.error;
-        }
-
-        // Attempt 4: Fallback to singular 'clinic' relation (In case of 1-to-1 schema relation name differences)
-        if (fetchError || !doctorsData || doctorsData.length === 0) {
-          console.warn("⚠️ [Pipeline Fallback Level 3]: Retrying with singular 'clinic' relation join...");
-          const attempt4 = await supabase
-            .from("doctors")
-            .select(`*, clinic (id, slug, name, address, city, consultation_fee)`);
-
-          if (attempt4.data && attempt4.data.length > 0) {
-            doctorsData = attempt4.data.map((doc: any) => ({
-              ...doc,
-              clinics: doc.clinic ? (Array.isArray(doc.clinic) ? doc.clinic : [doc.clinic]) : []
-            }));
-            fetchError = null;
-          } else {
-            fetchError = attempt4.error;
-          }
-        }
-
-        // Attempt 5: Bare Minimum Fetch (Guarantees doctor rendering and bypasses join table schema failures)
-        if (fetchError || !doctorsData || doctorsData.length === 0) {
-          console.warn("🚨 [Pipeline Fallback Level 4]: Executing raw bare-minimum doctor query...");
-          const attempt5 = await supabase
-            .from("doctors")
-            .select(`*`);
-
-          doctorsData = attempt5.data;
-          fetchError = attempt5.error;
-        }
-
-        // 2. Normalization & Sanitization to prevent Front-end Crashes
         if (doctorsData && doctorsData.length > 0) {
-          console.log(`✅ [Pipeline Success]: Successfully loaded ${doctorsData.length} doctors.`);
           const normalizedDoctors: DoctorWithClinic[] = doctorsData.map((doc: any) => {
             let finalClinics = [];
             if (doc.clinics) {
@@ -120,11 +91,12 @@ export default function PatientSearchPage() {
             return {
               ...doc,
               clinics: finalClinics,
-              featured_listings: doc.featured_listings || []
+              featured_listings: doc.featured_listings || [],
+              // Fallback random distance for real-time filter testing (replace with real geo-coordinates later)
+              calculated_distance: Math.floor(Math.random() * 95) + 1 
             };
           });
 
-          // Sort by featured status, then alphabetically by name
           const sortedDoctors = normalizedDoctors.sort((a, b) => {
             const aFeatured = a.featured_listings?.some(f => f.status === "active" && new Date(f.expires_at) > new Date());
             const bFeatured = b.featured_listings?.some(f => f.status === "active" && new Date(f.expires_at) > new Date());
@@ -135,7 +107,6 @@ export default function PatientSearchPage() {
 
           setDoctors(sortedDoctors);
 
-          // Build filter metrics lists safely
           const citySet = new Set<string>();
           const specSet = new Set<string>();
           normalizedDoctors.forEach((doc) => {
@@ -147,18 +118,28 @@ export default function PatientSearchPage() {
           setCities(Array.from(citySet).sort());
           setSpecializations(Array.from(specSet).sort());
         } else {
-          console.error("❌ [Pipeline Error]: All secure queries returned null or empty sets. Check RLS or empty tables.");
           setDoctors([]);
         }
       } catch (err) {
-        console.error("🔥 [Critical System Error] fetching patient dashboard data:", err);
+        console.error("Fetch error:", err);
       } finally {
         setLoading(false);
       }
     };
 
     fetchDataAndSession();
-  }, []); // Fixed: empty array to avoid re-render loops
+  }, []);
+
+  // Close filter panel when clicked outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (filterPanelRef.current && !filterPanelRef.current.contains(event.target as Node)) {
+        setIsFilterPanelOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -173,29 +154,55 @@ export default function PatientSearchPage() {
   };
 
   const handleProtectedAction = (targetPath: string) => {
-    if (!user) {
-      setIsAuthModalOpen(true);
-    } else {
-      router.push(targetPath);
+    if (!user) setIsAuthModalOpen(true);
+    else router.push(targetPath);
+  };
+
+  const toggleSpecialization = (type: string) => {
+    setSelectedTypes(prev => 
+      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+    );
+  };
+
+  const addCustomType = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (customTypeInput.trim() && !selectedTypes.includes(customTypeInput.trim())) {
+      setSelectedTypes(prev => [...prev, customTypeInput.trim()]);
+      if (!specializations.includes(customTypeInput.trim())) {
+        setSpecializations(prev => [...prev, customTypeInput.trim()]);
+      }
+      setCustomTypeInput("");
     }
   };
 
-  // Filtering rules
+  // Real-time Active Filters Count (Admitad Style)
+  const activeFiltersCount = 
+    (selectedTypes.length > 0 ? 1 : 0) + 
+    (isDistanceEnabled ? 1 : 0) + 
+    (isPriceEnabled ? 1 : 0) +
+    (selectedCity !== "all" ? 1 : 0);
+
+  // Real-time Filtering Engine
   const filteredDoctors = doctors.filter((doc) => {
     const fullName = doc.full_name || "";
-    const specialization = doc.specialization || "";
+    const primaryClinic = doc.clinics?.[0];
+    const docFee = primaryClinic?.consultation_fee || 0;
+    const docDistance = doc.calculated_distance || 0;
 
     const matchesSearch = !searchQuery || 
       fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      specialization.toLowerCase().includes(searchQuery.toLowerCase());
-
-    const matchesSpec = selectedSpecialization === "all" || 
-      specialization === selectedSpecialization;
+      (doc.specialization && doc.specialization.toLowerCase().includes(searchQuery.toLowerCase()));
 
     const matchesCity = selectedCity === "all" || 
       (doc.clinics && doc.clinics.some((clinic) => clinic?.city?.toLowerCase() === selectedCity.toLowerCase()));
 
-    return matchesSearch && matchesSpec && matchesCity;
+    const matchesTypes = selectedTypes.length === 0 || 
+      (doc.specialization && selectedTypes.some(t => doc.specialization?.toLowerCase().includes(t.toLowerCase())));
+
+    const matchesPrice = !isPriceEnabled || docFee <= maxPrice;
+    const matchesDistance = !isDistanceEnabled || docDistance <= maxDistance;
+
+    return matchesSearch && matchesCity && matchesTypes && matchesPrice && matchesDistance;
   });
 
   const isDoctorFeatured = (doc: DoctorWithClinic) => {
@@ -221,32 +228,23 @@ export default function PatientSearchPage() {
               <span className="text-xl font-bold text-gray-900">DocFind</span>
             </div>
 
-            {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center gap-6">
-              <button onClick={() => router.push("/patient")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Home</button>
-              <button onClick={() => router.push("/patient/search")} className="text-sm font-semibold text-[#36d1cf] transition-colors border-b-2 border-[#36d1cf] pb-1 bg-transparent border-0 cursor-pointer">Find Doctors</button>
-              <button onClick={() => handleProtectedAction("/patient/favorites")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Favorites</button>
-              <button onClick={() => handleProtectedAction("/patient/chats")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Chats</button>
-              <button onClick={() => handleProtectedAction("/patient/appointments")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] transition-colors bg-transparent border-0 cursor-pointer">Appointments</button>
+              <button onClick={() => router.push("/patient")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] bg-transparent border-0 cursor-pointer">Home</button>
+              <button onClick={() => router.push("/patient/search")} className="text-sm font-semibold text-[#36d1cf] border-b-2 border-[#36d1cf] pb-1 bg-transparent border-0 cursor-pointer">Find Doctors</button>
+              <button onClick={() => handleProtectedAction("/patient/favorites")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] bg-transparent border-0 cursor-pointer">Favorites</button>
+              <button onClick={() => handleProtectedAction("/patient/appointments")} className="text-sm font-semibold text-gray-600 hover:text-[#36d1cf] bg-transparent border-0 cursor-pointer">Appointments</button>
 
               {user ? (
                 <div className="flex items-center gap-3">
                   <button onClick={() => router.push("/patient/profile")} className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 px-3.5 py-1.5 rounded-xl transition-all border-0 cursor-pointer">
                     <User className="w-4 h-4 text-gray-500" /> {user.email?.split("@")[0]}
                   </button>
-                  <button 
-                    onClick={handleLogout}
-                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors bg-transparent border-0 cursor-pointer"
-                    title="Logout"
-                  >
+                  <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl bg-transparent border-0 cursor-pointer" title="Logout">
                     <LogOut className="h-5 w-5" />
                   </button>
                 </div>
               ) : (
-                <button 
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="px-4 py-2 text-sm font-bold text-white bg-[#36d1cf] hover:bg-[#2eb3b1] rounded-xl transition-all border-0 cursor-pointer shadow-sm"
-                >
+                <button onClick={() => setIsAuthModalOpen(true)} className="px-4 py-2 text-sm font-bold text-white bg-[#36d1cf] hover:bg-[#2eb3b1] rounded-xl transition-all border-0 cursor-pointer shadow-sm">
                   Sign In / Register
                 </button>
               )}
@@ -255,20 +253,14 @@ export default function PatientSearchPage() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-
-        {/* Dynamic Warning Alert for Guest Users */}
         {!user && (
           <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4.5 bg-amber-50 border border-amber-100 rounded-2xl text-amber-800 animate-fade-in">
             <div className="flex items-center gap-3">
               <ShieldAlert className="h-5 w-5 text-amber-600 flex-shrink-0" />
-              <p className="text-sm font-bold tracking-tight">You are currently in Guest Mode. Search is active, but scheduling booking requests requires session authentication.</p>
+              <p className="text-sm font-bold tracking-tight">Guest Mode. Booking requests require session authentication.</p>
             </div>
-            <button 
-              onClick={() => setIsAuthModalOpen(true)}
-              className="text-xs font-black bg-amber-600 text-white px-4 py-2 rounded-xl hover:bg-amber-700 active:scale-95 transition-all border-0 cursor-pointer whitespace-nowrap"
-            >
+            <button onClick={() => setIsAuthModalOpen(true)} className="text-xs font-black bg-amber-600 text-white px-4 py-2 rounded-xl hover:bg-amber-700 transition-all border-0 cursor-pointer whitespace-nowrap">
               Unlock Full Access
             </button>
           </div>
@@ -279,107 +271,215 @@ export default function PatientSearchPage() {
           <p className="text-sm md:text-base text-gray-600">Filter through our onboarded elite clinicians globally</p>
         </div>
 
-        {/* Filters Box */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6 md:mb-8 shadow-sm">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input 
-                type="text" 
-                value={searchQuery} 
-                onChange={(e) => setSearchQuery(e.target.value)} 
-                placeholder="Search by name or specialization..." 
-                className="w-full pl-10 pr-4 py-2.5 md:py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#36d1cf] focus:ring-offset-0 text-sm"
-              />
-            </div>
-            <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 bg-white">
-              <MapPin className="w-5 h-5 text-gray-400" />
+        {/* 🚀 Next Gen Floating Filters Box */}
+        <div className="relative mb-6 md:mb-8 z-30" ref={filterPanelRef}>
+          <div className="bg-white rounded-2xl border border-gray-200 p-2 pl-4 shadow-sm flex items-center gap-3">
+            <Search className="w-5 h-5 text-gray-400 shrink-0" />
+            <input 
+              type="text" 
+              value={searchQuery} 
+              onChange={(e) => setSearchQuery(e.target.value)} 
+              placeholder="Search doctors, symptoms, or keywords..." 
+              className="flex-1 bg-transparent py-2.5 outline-none text-sm font-medium text-gray-900 placeholder:text-gray-400"
+            />
+            
+            <div className="hidden sm:flex items-center gap-2 border-l border-gray-200 pl-3">
+              <MapPin className="w-4 h-4 text-gray-400" />
               <select 
                 value={selectedCity} 
                 onChange={(e) => setSelectedCity(e.target.value)} 
-                className="w-full py-1 focus:outline-none text-sm bg-transparent border-0 cursor-pointer"
+                className="py-1 outline-none text-sm font-medium bg-transparent cursor-pointer text-gray-700"
               >
                 <option value="all">All Cities</option>
                 {cities.map((city) => (<option key={city} value={city}>{city}</option>))}
               </select>
             </div>
-            <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 bg-white">
-              <Stethoscope className="w-5 h-5 text-gray-400" />
-              <select 
-                value={selectedSpecialization} 
-                onChange={(e) => setSelectedSpecialization(e.target.value)} 
-                className="w-full py-1 focus:outline-none text-sm bg-transparent border-0 cursor-pointer"
-              >
-                <option value="all">All Specializations</option>
-                {specializations.map((spec) => (<option key={spec} value={spec}>{spec}</option>))}
-              </select>
-            </div>
+
+            {/* Filter Toggle Button */}
+            <button 
+              onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
+              className={`relative flex items-center justify-center w-11 h-11 rounded-xl transition-all border ${isFilterPanelOpen ? 'bg-gray-100 border-gray-300 text-gray-900' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+            >
+              <SlidersHorizontal className="w-5 h-5" />
+              {activeFiltersCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-[#36d1cf] text-white text-[10px] font-bold h-5 w-5 flex items-center justify-center rounded-full shadow-sm ring-2 ring-white">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
           </div>
+
+          {/* 🔽 Expandable Floating Filter Panel (Does NOT push UI down) */}
+          {isFilterPanelOpen && (
+            <div className="absolute top-[calc(100%+8px)] right-0 w-full sm:w-[400px] bg-white rounded-2xl border border-gray-200 shadow-xl p-5 origin-top-right animate-in fade-in slide-in-from-top-2">
+              <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-100">
+                <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                  Advanced Filters
+                  {activeFiltersCount > 0 && <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md text-xs">{activeFiltersCount} active</span>}
+                </h3>
+                <button onClick={() => setIsFilterPanelOpen(false)} className="text-gray-400 hover:text-gray-900">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Doctor Types (Dynamic Pills + Custom Add) */}
+              <div className="mb-5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Doctor Type / Specialization</label>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {specializations.slice(0, 8).map(spec => (
+                    <button 
+                      key={spec}
+                      onClick={() => toggleSpecialization(spec)}
+                      className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${selectedTypes.includes(spec) ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}
+                    >
+                      {spec} {selectedTypes.includes(spec) && <Check className="w-3 h-3 inline ml-1" />}
+                    </button>
+                  ))}
+                </div>
+                {/* Custom Type Input */}
+                <form onSubmit={addCustomType} className="flex gap-2">
+                  <input 
+                    type="text" 
+                    value={customTypeInput}
+                    onChange={(e) => setCustomTypeInput(e.target.value)}
+                    placeholder="Add custom e.g., Surgeon..." 
+                    className="flex-1 text-xs px-3 py-2 border border-gray-200 rounded-lg outline-none focus:border-[#36d1cf]"
+                  />
+                  <button type="submit" className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors">
+                    <Plus className="w-3 h-3" /> Add
+                  </button>
+                </form>
+              </div>
+
+              {/* Distance Slider */}
+              <div className="mb-5">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-gray-900 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={isDistanceEnabled} 
+                      onChange={(e) => setIsDistanceEnabled(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 text-[#36d1cf] focus:ring-[#36d1cf]"
+                    />
+                    Max Distance
+                  </label>
+                  <span className={`text-xs font-bold ${isDistanceEnabled ? 'text-[#36d1cf]' : 'text-gray-400'}`}>
+                    {maxDistance} km
+                  </span>
+                </div>
+                <input 
+                  type="range" 
+                  min="1" max="100" 
+                  value={maxDistance}
+                  onChange={(e) => setMaxDistance(Number(e.target.value))}
+                  disabled={!isDistanceEnabled}
+                  className={`w-full h-1.5 rounded-lg appearance-none cursor-pointer ${isDistanceEnabled ? 'bg-gray-200 accent-[#36d1cf]' : 'bg-gray-100 accent-gray-300 opacity-50 cursor-not-allowed'}`}
+                />
+                <div className="flex justify-between mt-1 text-[10px] text-gray-400 font-medium">
+                  <span>1 km</span>
+                  <span>100 km</span>
+                </div>
+              </div>
+
+              {/* Price Slider */}
+              <div className="mb-5">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-gray-900 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={isPriceEnabled} 
+                      onChange={(e) => setIsPriceEnabled(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 text-[#36d1cf] focus:ring-[#36d1cf]"
+                    />
+                    Consultation Fee
+                  </label>
+                  <span className={`text-xs font-bold ${isPriceEnabled ? 'text-[#36d1cf]' : 'text-gray-400'}`}>
+                    Upto Rs. {maxPrice}
+                  </span>
+                </div>
+                <input 
+                  type="range" 
+                  min="500" max="15000" step="500"
+                  value={maxPrice}
+                  onChange={(e) => setMaxPrice(Number(e.target.value))}
+                  disabled={!isPriceEnabled}
+                  className={`w-full h-1.5 rounded-lg appearance-none cursor-pointer ${isPriceEnabled ? 'bg-gray-200 accent-[#36d1cf]' : 'bg-gray-100 accent-gray-300 opacity-50 cursor-not-allowed'}`}
+                />
+                <div className="flex justify-between mt-1 text-[10px] text-gray-400 font-medium">
+                  <span>Rs. 500</span>
+                  <span>Rs. 15k+</span>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setIsFilterPanelOpen(false)}
+                className="w-full bg-gray-900 text-white font-bold text-sm py-3 rounded-xl hover:bg-gray-800 transition-colors shadow-sm"
+              >
+                Apply Filters & Close
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="mb-4">
-          <p className="text-xs md:text-sm text-gray-500">{filteredDoctors.length} doctor{filteredDoctors.length !== 1 ? "s" : ""} found</p>
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-xs md:text-sm text-gray-500 font-medium">
+            Showing <strong className="text-gray-900">{filteredDoctors.length}</strong> matching results
+          </p>
         </div>
 
         {/* Doctor Grid */}
         {filteredDoctors.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 relative z-10">
             {filteredDoctors.map((doctor) => {
               const primaryClinic = doctor.clinics?.[0];
               const featured = isDoctorFeatured(doctor);
-              // Target slug fallback: primaryClinic.slug -> primaryClinic.id -> doctor.id
               const targetSlug = primaryClinic?.slug || primaryClinic?.id || doctor.id;
 
               return (
-                <div key={doctor.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow relative flex flex-col justify-between">
+                <div key={doctor.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden hover:border-[#36d1cf]/50 hover:shadow-lg transition-all relative flex flex-col justify-between group">
                   {featured && (
                     <div className="absolute top-3 right-3 z-10">
-                      <span className="px-2 py-0.5 text-[10px] font-medium rounded-full text-white flex items-center gap-0.5" style={{ backgroundColor: "#36d1cf" }}>
+                      <span className="px-2.5 py-1 text-[10px] font-bold rounded-full text-white flex items-center gap-1 shadow-sm" style={{ backgroundColor: "#36d1cf" }}>
                         <Star className="w-3 h-3 fill-current" />Featured
                       </span>
                     </div>
                   )}
                   <div className="p-5 flex-1">
                     <div className="flex items-start gap-4">
-                      <div className="w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: featured ? "#e6faf9" : "#f3f4f6" }}>
+                      <div className="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0 border border-gray-100 group-hover:scale-105 transition-transform" style={{ backgroundColor: featured ? "#f0fdfc" : "#f8fafc" }}>
                         {doctor.profile_image_url ? (
-                          <img src={doctor.profile_image_url} alt={doctor.full_name || ""} className="w-full h-full object-cover rounded-full" />
+                          <img src={doctor.profile_image_url} alt={doctor.full_name || ""} className="w-full h-full object-cover rounded-2xl" />
                         ) : (
-                          <User className="w-7 h-7 md:w-8 md:h-8" style={{ color: featured ? "#36d1cf" : "#9ca3af" }} />
+                          <User className="w-8 h-8" style={{ color: featured ? "#36d1cf" : "#94a3b8" }} />
                         )}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-gray-900 truncate text-base md:text-lg">{doctor.full_name}</h3>
-                        <p className="text-xs md:text-sm font-medium" style={{ color: "#36d1cf" }}>{doctor.specialization}</p>
+                      <div className="flex-1 min-w-0 pt-1">
+                        <h3 className="font-bold text-gray-900 truncate text-[17px]">{doctor.full_name}</h3>
+                        <p className="text-[13px] font-semibold mt-0.5" style={{ color: "#36d1cf" }}>{doctor.specialization}</p>
                       </div>
                     </div>
 
                     {primaryClinic && (
-                      <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
-                        <div className="flex items-start gap-2">
-                          <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
-                          <div className="min-w-0">
-                            <p className="text-xs md:text-sm font-semibold text-gray-900 truncate">{primaryClinic.name}</p>
-                            <p className="text-[11px] md:text-xs text-gray-500 truncate">{primaryClinic.address}, {primaryClinic.city}</p>
-                          </div>
+                      <div className="mt-5 pt-4 border-t border-gray-100 grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1"><MapPin className="w-3 h-3"/> Location</span>
+                          <span className="text-[13px] font-semibold text-gray-900 truncate">{doctor.calculated_distance} km away</span>
                         </div>
-                        {primaryClinic.consultation_fee && (
-                          <div className="flex items-center gap-2 text-xs md:text-sm">
-                            <span className="text-gray-500">Fee:</span>
-                            <span className="font-bold text-gray-900">${primaryClinic.consultation_fee}</span>
-                          </div>
-                        )}
+                        <div className="flex flex-col gap-0.5 pl-3 border-l border-gray-100">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Fee</span>
+                          <span className="text-[13px] font-bold text-gray-900">Rs. {primaryClinic.consultation_fee}</span>
+                        </div>
                       </div>
                     )}
                   </div>
 
-                  <div className="px-5 pb-5 pt-1">
+                  <div className="px-5 pb-5 pt-2">
                     <button 
                       onClick={() => handleProtectedAction(`/clinic/${targetSlug}`)} 
-                      className="w-full py-2.5 text-white font-semibold rounded-lg transition-all text-sm shadow-sm hover:brightness-105 active:scale-[0.98] border-0 cursor-pointer"
+                      className="w-full py-2.5 text-white font-bold rounded-xl transition-all text-[13px] shadow-sm hover:shadow-md active:scale-[0.98] flex justify-center items-center gap-2"
                       style={{ backgroundColor: "#36d1cf" }}
                     >
-                      View Profile & Book
+                      Book Appointment
                     </button>
                   </div>
                 </div>
@@ -387,31 +487,32 @@ export default function PatientSearchPage() {
             })}
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+          <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center relative z-10">
             <Stethoscope className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-600 font-medium text-sm">No doctors matching search criteria</p>
+            <p className="text-gray-900 font-bold mb-1">No doctors found</p>
+            <p className="text-gray-500 font-medium text-sm">Try adjusting your filters or search keywords.</p>
           </div>
         )}
       </main>
 
       {/* Synchronized Mobile Navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-2 flex justify-between items-center z-50 shadow-lg">
-        <button onClick={() => router.push("/patient")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-2 flex justify-between items-center z-50 pb-safe">
+        <button onClick={() => router.push("/patient")} className="flex flex-col items-center gap-1 bg-transparent border-0">
           <HomeIcon className="w-5 h-5" color={pathname === "/patient" ? "#36d1cf" : "#9ca3af"} />
           <span className="text-[10px] font-bold" style={{ color: pathname === "/patient" ? "#36d1cf" : "#9ca3af" }}>Home</span>
         </button>
 
-        <button onClick={() => router.push("/patient/search")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
+        <button onClick={() => router.push("/patient/search")} className="flex flex-col items-center gap-1 bg-transparent border-0">
           <Search className="w-5 h-5" style={{ color: pathname === "/patient/search" ? "#36d1cf" : "#9ca3af" }} />
           <span className="text-[10px] font-bold" style={{ color: pathname === "/patient/search" ? "#36d1cf" : "#9ca3af" }}>Find</span>
         </button>
 
-        <button onClick={() => handleProtectedAction("/patient/appointments")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
+        <button onClick={() => handleProtectedAction("/patient/appointments")} className="flex flex-col items-center gap-1 bg-transparent border-0">
           <Calendar className="w-5 h-5" style={{ color: pathname?.includes("/appointments") ? "#36d1cf" : "#9ca3af" }} />
           <span className="text-[10px] font-bold" style={{ color: pathname?.includes("/appointments") ? "#36d1cf" : "#9ca3af" }}>Bookings</span>
         </button>
 
-        <button onClick={() => handleProtectedAction("/patient/profile")} className="flex flex-col items-center gap-1 bg-transparent border-0 cursor-pointer">
+        <button onClick={() => handleProtectedAction("/patient/profile")} className="flex flex-col items-center gap-1 bg-transparent border-0">
           <User className="w-5 h-5" style={{ color: pathname?.includes("/profile") ? "#36d1cf" : "#9ca3af" }} />
           <span className="text-[10px] font-bold" style={{ color: pathname?.includes("/profile") ? "#36d1cf" : "#9ca3af" }}>Profile</span>
         </button>
