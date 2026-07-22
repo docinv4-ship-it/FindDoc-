@@ -11,34 +11,23 @@ export async function GET(request: NextRequest) {
     const email = searchParams.get("email") || user?.email;
     const userId = searchParams.get("userId") || user?.id;
 
-    // 🎯 STAGE 1: Check Auth Credentials
     if (!email && !userId) {
-      return NextResponse.json({ 
-        error: "STAGE 1 FAIL: Session or Email/UserId parameter missing." 
-      }, { status: 400 });
+      return NextResponse.json({ appointments: [] }, { status: 200 });
     }
 
-    // 🎯 STAGE 2: Patients Table Check
+    // 🎯 Step 1: Patients table se matching patient records nikalo
     const { data: patientRecords, error: patientError } = await supabase
       .from("patients")
       .select("id")
       .or(`user_id.eq.${userId},email.eq.${email}`);
 
-    if (patientError) {
-      return NextResponse.json({ 
-        error: `STAGE 2 SQL FAIL: ${patientError.message}` 
-      }, { status: 400 });
-    }
-
-    if (!patientRecords || patientRecords.length === 0) {
-      return NextResponse.json({ 
-        error: `STAGE 2 DATA FAIL: Patient profile not found for Email (${email}) / UserId (${userId})` 
-      }, { status: 400 });
+    if (patientError || !patientRecords || patientRecords.length === 0) {
+      return NextResponse.json({ appointments: [] }, { status: 200 });
     }
 
     const patientIds = patientRecords.map((p: { id: string }) => p.id);
 
-    // 🎯 STAGE 3: Appointments Query & Foreign Key Join Check
+    // 🎯 Step 2: Fetch appointments with EXPLICIT foreign key (clinics!clinic_id)
     const { data: appointments, error: apptError } = await supabase
       .from("appointments")
       .select(`
@@ -48,23 +37,21 @@ export async function GET(request: NextRequest) {
         end_time, 
         status, 
         reason_for_visit,
-        clinics(id, name, address, city),
-        doctors(id, full_name, specialization)
+        clinics!clinic_id(id, name, address, city),
+        doctors!doctor_id(id, full_name, specialization)
       `)
       .in("patient_id", patientIds)
       .order("appointment_date", { ascending: false });
 
     if (apptError) {
-      return NextResponse.json({ 
-        error: `STAGE 3 SQL FAIL: ${apptError.message} | Details: ${apptError.details || apptError.hint || "None"}` 
-      }, { status: 400 });
+      console.error("Appointments Query Error:", apptError);
+      return NextResponse.json({ appointments: [] }, { status: 200 });
     }
 
     return NextResponse.json({ appointments: appointments || [] }, { status: 200 });
 
-  } catch (e: any) {
-    return NextResponse.json({ 
-      error: `CRITICAL CATCH: ${e?.message || "Unknown Server Error"}` 
-    }, { status: 500 });
+  } catch (e) {
+    console.error("Critical API Error:", e);
+    return NextResponse.json({ appointments: [] }, { status: 200 });
   }
 }
