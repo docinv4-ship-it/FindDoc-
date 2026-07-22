@@ -9,34 +9,13 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const email = searchParams.get("email") || user?.email;
-    const userId = searchParams.get("userId") || user?.id;
 
-    if (!email && !userId) {
+    if (!email) {
       return NextResponse.json({ appointments: [] }, { status: 200 });
     }
 
-    // 🎯 Step 1: Pehle 'patients' table se patient ki real IDs nikalo (by user_id OR email)
-    let patientQuery = supabase.from("patients").select("id");
-
-    if (userId && email) {
-      patientQuery = patientQuery.or(`user_id.eq.${userId},email.eq.${email}`);
-    } else if (userId) {
-      patientQuery = patientQuery.eq("user_id", userId);
-    } else {
-      patientQuery = patientQuery.eq("email", email);
-    }
-
-    const { data: patientRecords, error: patientError } = await patientQuery;
-
-    if (patientError || !patientRecords || patientRecords.length === 0) {
-      return NextResponse.json({ appointments: [] }, { status: 200 });
-    }
-
-    // Extract all matching patient IDs
-    const patientIds = patientRecords.map((p: { id: string }) => p.id);
-
-    // 🎯 Step 2: Ab 'appointments' table se patient_id ki base par appointments fetch karo
-    const { data: appointments, error: apptError } = await supabase
+    // 🎯 Direct Fetch: Simple and bulletproof lookup via email
+    const { data: appointments, error } = await supabase
       .from("appointments")
       .select(`
         id, 
@@ -48,18 +27,18 @@ export async function GET(request: NextRequest) {
         clinics(id, name, address, city),
         doctors(id, full_name, specialization)
       `)
-      .in("patient_id", patientIds)
+      .eq("patient_email", email)
       .order("appointment_date", { ascending: false });
 
-    if (apptError) {
-      console.error("Error fetching appointments:", apptError);
+    if (error) {
+      console.error("Fetch error:", error);
       return NextResponse.json({ appointments: [] }, { status: 200 });
     }
 
     return NextResponse.json({ appointments: appointments || [] }, { status: 200 });
 
   } catch (e) {
-    console.error("Booking Lookup Critical Error:", e);
+    console.error("Critical API Error:", e);
     return NextResponse.json({ appointments: [] }, { status: 200 });
   }
 }
