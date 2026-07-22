@@ -5,36 +5,40 @@ export async function GET(request: NextRequest) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase: any = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
 
     const { searchParams } = new URL(request.url);
     const email = searchParams.get("email") || user?.email;
     const userId = searchParams.get("userId") || user?.id;
 
-    // 🔍 TEST 1: Check Auth & Params
+    // 🎯 STAGE 1: Check Auth Credentials
     if (!email && !userId) {
       return NextResponse.json({ 
-        debugStage: "1. Missing Credentials", 
-        authError, user, email, userId 
+        error: "STAGE 1 FAIL: Session or Email/UserId parameter missing." 
       }, { status: 400 });
     }
 
-    // 🔍 TEST 2: Query Patients
+    // 🎯 STAGE 2: Patients Table Check
     const { data: patientRecords, error: patientError } = await supabase
       .from("patients")
       .select("id")
       .or(`user_id.eq.${userId},email.eq.${email}`);
 
-    if (patientError || !patientRecords || patientRecords.length === 0) {
+    if (patientError) {
       return NextResponse.json({ 
-        debugStage: "2. Patient Lookup Failed", 
-        patientError, patientRecords, searchedUserId: userId, searchedEmail: email 
+        error: `STAGE 2 SQL FAIL: ${patientError.message}` 
+      }, { status: 400 });
+    }
+
+    if (!patientRecords || patientRecords.length === 0) {
+      return NextResponse.json({ 
+        error: `STAGE 2 DATA FAIL: Patient profile not found for Email (${email}) / UserId (${userId})` 
       }, { status: 400 });
     }
 
     const patientIds = patientRecords.map((p: { id: string }) => p.id);
 
-    // 🔍 TEST 3: Query Appointments with Join
+    // 🎯 STAGE 3: Appointments Query & Foreign Key Join Check
     const { data: appointments, error: apptError } = await supabase
       .from("appointments")
       .select(`
@@ -52,21 +56,15 @@ export async function GET(request: NextRequest) {
 
     if (apptError) {
       return NextResponse.json({ 
-        debugStage: "3. Appointments Query Error (Relationship/RLS Issue)", 
-        apptError, patientIds 
+        error: `STAGE 3 SQL FAIL: ${apptError.message} | Details: ${apptError.details || apptError.hint || "None"}` 
       }, { status: 400 });
     }
 
-    return NextResponse.json({ 
-      debugStage: "SUCCESS", 
-      appointmentsCount: appointments?.length, 
-      appointments 
-    }, { status: 200 });
+    return NextResponse.json({ appointments: appointments || [] }, { status: 200 });
 
   } catch (e: any) {
     return NextResponse.json({ 
-      debugStage: "CRITICAL CATCH", 
-      errorMessage: e?.message 
+      error: `CRITICAL CATCH: ${e?.message || "Unknown Server Error"}` 
     }, { status: 500 });
   }
 }
