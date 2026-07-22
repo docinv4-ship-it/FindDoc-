@@ -50,7 +50,19 @@ export async function POST(request: NextRequest) {
     // 4. Resolve Patient Identity (Safe DB Lookup & Insert)
     let patientId: string | null = null;
 
-    if (effectiveEmail) {
+    if (effectiveUserId) {
+      const { data: patientById } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("id", effectiveUserId)
+        .maybeSingle();
+
+      if (patientById) {
+        patientId = patientById.id;
+      }
+    }
+
+    if (!patientId && effectiveEmail) {
       const { data: existingPatient } = await supabase
         .from("patients")
         .select("id")
@@ -60,13 +72,13 @@ export async function POST(request: NextRequest) {
       if (existingPatient) {
         patientId = existingPatient.id;
       } else {
-        // Safe insert: 'phone' mein fallback default string taake DB NOT NULL error na de
+        // Safe insert: Default phone fallback to prevent NOT NULL constraint error
         const { data: newPatient, error: createPatientError } = await supabase
           .from("patients")
           .insert({
             full_name: patient_name.trim(),
             email: effectiveEmail,
-            phone: "0000000000", // Fixes DB NOT NULL phone constraint
+            phone: "N/A",
             is_guest: !authUser,
           })
           .select("id")
@@ -84,10 +96,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (!patientId) {
-      patientId = effectiveUserId;
-    }
-
-    if (!patientId) {
       return NextResponse.json(
         { error: "Authentication or valid email required to start chat." },
         { status: 401 }
@@ -97,7 +105,7 @@ export async function POST(request: NextRequest) {
     // 5. Existing Active Conversation Check
     const { data: existingConvo } = await supabase
       .from("conversations")
-      .select("id")
+      .select("id, status")
       .eq("clinic_id", clinic_id)
       .eq("doctor_id", doctor_id)
       .eq("patient_id", patientId)
@@ -107,6 +115,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         conversation_id: existingConvo.id,
         patient_id: patientId,
+        status: existingConvo.status,
         existing: true,
       });
     }
@@ -121,6 +130,8 @@ export async function POST(request: NextRequest) {
         patient_name: patient_name.trim(),
         patient_email: effectiveEmail,
         status: "active",
+        last_message_at: new Date().toISOString(),
+        last_message_preview: "Welcome to our clinic! How can we help you today?",
       })
       .select("id")
       .single();
@@ -148,14 +159,11 @@ export async function POST(request: NextRequest) {
       conversation_id: conversation.id,
       patient_id: patientId,
       welcome_message: welcomeMessage,
+      existing: false,
     });
-
   } catch (error: unknown) {
     const err = error instanceof Error ? error.message : "Unknown fatal error";
     console.error("[Chat API Fatal Exception]:", err);
-    return NextResponse.json(
-      { error: `Server Error: ${err}` },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: `Server Error: ${err}` }, { status: 500 });
   }
 }
