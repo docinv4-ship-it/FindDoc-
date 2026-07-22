@@ -12,22 +12,12 @@ export async function GET(request: NextRequest) {
     const userId = searchParams.get("userId") || user?.id;
 
     if (!email && !userId) {
-      return NextResponse.json({ appointments: [] }, { status: 200 });
+      return NextResponse.json({ 
+        error: "NO CREDENTIALS: User Email / ID missing." 
+      }, { status: 400 });
     }
 
-    // 🎯 Step 1: Patients table se matching patient records nikalo
-    const { data: patientRecords, error: patientError } = await supabase
-      .from("patients")
-      .select("id")
-      .or(`user_id.eq.${userId},email.eq.${email}`);
-
-    if (patientError || !patientRecords || patientRecords.length === 0) {
-      return NextResponse.json({ appointments: [] }, { status: 200 });
-    }
-
-    const patientIds = patientRecords.map((p: { id: string }) => p.id);
-
-    // 🎯 Step 2: Fetch appointments with EXPLICIT foreign key (clinics!clinic_id)
+    // 🎯 Direct Fetch using patient_email OR patient_id with explicit FK hints
     const { data: appointments, error: apptError } = await supabase
       .from("appointments")
       .select(`
@@ -37,21 +27,32 @@ export async function GET(request: NextRequest) {
         end_time, 
         status, 
         reason_for_visit,
+        patient_email,
         clinics!clinic_id(id, name, address, city),
         doctors!doctor_id(id, full_name, specialization)
       `)
-      .in("patient_id", patientIds)
+      .or(`patient_email.eq.${email},patient_id.eq.${userId}`)
       .order("appointment_date", { ascending: false });
 
+    // ❌ Agar SQL/Relationship Error aaya toh SCREEN PAR SHOW KARO
     if (apptError) {
-      console.error("Appointments Query Error:", apptError);
-      return NextResponse.json({ appointments: [] }, { status: 200 });
+      return NextResponse.json({ 
+        error: `SQL JOIN ERROR: ${apptError.message} | Hint: ${apptError.hint || "None"}` 
+      }, { status: 400 });
     }
 
-    return NextResponse.json({ appointments: appointments || [] }, { status: 200 });
+    // ❌ Agar Query chal gayi lekin data 0 aaya toh SCREEN PAR SHOW KARO
+    if (!appointments || appointments.length === 0) {
+      return NextResponse.json({ 
+        error: `ZERO RECORDS: Database query ran successfully, but no appointment matched email (${email}) or userId (${userId}).` 
+      }, { status: 400 });
+    }
 
-  } catch (e) {
-    console.error("Critical API Error:", e);
-    return NextResponse.json({ appointments: [] }, { status: 200 });
+    return NextResponse.json({ appointments }, { status: 200 });
+
+  } catch (e: any) {
+    return NextResponse.json({ 
+      error: `SERVER EXCEPTION: ${e?.message || "Unknown error"}` 
+    }, { status: 500 });
   }
 }
