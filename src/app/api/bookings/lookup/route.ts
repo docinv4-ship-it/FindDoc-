@@ -8,14 +8,12 @@ export async function GET(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
 
     const { searchParams } = new URL(request.url);
-    const email = searchParams.get("email") || user?.email;
+    
+    // Fallback: searchParam -> auth session -> hardcoded test email
+    const email = searchParams.get("email") || user?.email || "shopme924@gmail.com";
     const userId = searchParams.get("userId") || user?.id;
 
-    if (!email && !userId) {
-      return NextResponse.json({ appointments: [] }, { status: 200 });
-    }
-
-    // 🎯 EXACT FIX: Explicit foreign key constraint name (appointments_clinic_id_fkey)
+    // 🎯 QUERY: Query database directly
     const { data: appointments, error: apptError } = await supabase
       .from("appointments")
       .select(`
@@ -32,15 +30,25 @@ export async function GET(request: NextRequest) {
       .or(`patient_email.eq.${email},patient_id.eq.${userId}`)
       .order("appointment_date", { ascending: false });
 
+    // ❌ AGAR SQL JOIN MEIN ERROR AAYA TOH SCREEN PAR SHOW KARO
     if (apptError) {
-      console.error("Appointments Lookup Error:", apptError);
-      return NextResponse.json({ appointments: [] }, { status: 200 });
+      return NextResponse.json({ 
+        error: `SQL QUERY ERROR: ${apptError.message} | Details: ${apptError.details || apptError.hint || "None"}` 
+      }, { status: 400 });
     }
 
-    return NextResponse.json({ appointments: appointments || [] }, { status: 200 });
+    // ❌ AGAR DATA 0 AAYA TOH REASON DHOONDO
+    if (!appointments || appointments.length === 0) {
+      return NextResponse.json({ 
+        error: `ZERO MATCHES: Database search ran for Email (${email}) but returned 0 rows.` 
+      }, { status: 400 });
+    }
 
-  } catch (e) {
-    console.error("Critical API Error:", e);
-    return NextResponse.json({ appointments: [] }, { status: 200 });
+    return NextResponse.json({ appointments }, { status: 200 });
+
+  } catch (e: any) {
+    return NextResponse.json({ 
+      error: `SERVER EXCEPTION: ${e?.message || "Unknown error"}` 
+    }, { status: 500 });
   }
 }
