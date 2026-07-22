@@ -1,29 +1,23 @@
 /**
  * DocFind Enterprise Progressive Web App (PWA) Service Worker
- * Version: 2.0.0
- * Architecture: Stale-While-Revalidate + Network-First Hybrid
+ * Version: 2.0.1 (Fixed Null Response Bug)
  */
 
-const VERSION = "v2.0.0";
+const VERSION = "v2.0.1";
 const CACHE_KEYS = {
   STATIC: `docfind-static-${VERSION}`,
   DYNAMIC: `docfind-dynamic-${VERSION}`,
   IMAGES: `docfind-images-${VERSION}`,
 };
 
-// Core Static Shell Assets
 const PRECACHE_ASSETS = [
   "/",
   "/manifest.json",
   "/icons/icon.svg",
 ];
 
-// Maximum allowed dynamic cache items to prevent memory bloat
 const MAX_DYNAMIC_ITEMS = 60;
 
-/**
- * Helper: Limit Cache Size (LRU Eviction)
- */
 async function limitCacheSize(cacheName, maxItems) {
   const cache = await caches.open(cacheName);
   const keys = await cache.keys();
@@ -33,10 +27,7 @@ async function limitCacheSize(cacheName, maxItems) {
   }
 }
 
-/**
- * 1. INSTALL EVENT
- * Pre-caches critical app shell assets and activates immediately
- */
+// 1. INSTALL EVENT
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_KEYS.STATIC).then((cache) => {
@@ -48,10 +39,7 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
-/**
- * 2. ACTIVATE EVENT
- * Purges old cache versions and claims active clients instantly
- */
+// 2. ACTIVATE EVENT
 self.addEventListener("activate", (event) => {
   const currentCaches = Object.values(CACHE_KEYS);
   event.waitUntil(
@@ -65,45 +53,28 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-/**
- * 3. FETCH EVENT - INTELLIGENT ROUTING
- */
+// 3. FETCH EVENT - INTELLIGENT ROUTING
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // A. Bypass Non-GET Requests (POST, PUT, DELETE, Server Actions)
+  // A. Bypass Non-GET Requests
   if (request.method !== "GET") return;
 
-  // B. Bypass Cross-Origin Requests (External APIs / Supabase CDN / Auth)
+  // B. Bypass Cross-Origin Requests
   if (url.origin !== self.location.origin) return;
 
-  // C. Bypass Auth Callbacks & Next.js Internal Data Fetching
+  // C. Bypass Auth, Next.js Internal Data Fetching & Direct API Calls
   if (
     url.pathname.startsWith("/auth/") ||
+    url.pathname.startsWith("/api/") ||
     url.pathname.includes("_next/data") ||
     request.headers.get("x-nextjs-data")
   ) {
-    return;
+    return; // Directly hand over control back to the browser network layer
   }
 
-  // D. API Routes Strategy: Network-Only with Offline JSON Fallback
-  if (url.pathname.startsWith("/api/")) {
-    event.respondWith(
-      fetch(request).catch(() => {
-        return new Response(
-          JSON.stringify({ error: "Offline mode active", code: 503 }),
-          {
-            status: 503,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
-      })
-    );
-    return;
-  }
-
-  // E. Navigation Requests (Pages/HTML): Network-First with Cache Fallback
+  // D. Navigation Requests (Pages/HTML): Network-First
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
@@ -119,16 +90,18 @@ self.addEventListener("fetch", (event) => {
         .catch(async () => {
           const cached = await caches.match(request);
           if (cached) return cached;
-          
-          // Fallback to cached home page if offline
+
           const rootCache = await caches.match("/");
-          return rootCache || new Response("Offline - DocFind", { status: 503 });
+          return rootCache || new Response("Offline - DocFind", { 
+            status: 503, 
+            headers: { "Content-Type": "text/html" } 
+          });
         })
     );
     return;
   }
 
-  // F. Static Assets (Scripts, Styles, Next.js Bundles): Stale-While-Revalidate
+  // E. Static Assets: Stale-While-Revalidate (FIXED: NEVER RETURN NULL)
   if (
     request.destination === "style" ||
     request.destination === "script" ||
@@ -142,7 +115,10 @@ self.addEventListener("fetch", (event) => {
             cache.put(request, networkResponse.clone());
           }
           return networkResponse;
-        }).catch(() => null);
+        }).catch(() => {
+          // Return a valid empty response if network fails instead of null
+          return cachedResponse || new Response("", { status: 404 });
+        });
 
         return cachedResponse || fetchPromise;
       })
@@ -150,7 +126,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // G. Images & Media: Cache-First with Network Fallback
+  // F. Images & Media: Cache-First (FIXED: NEVER RETURN NULL)
   if (request.destination === "image" || request.destination === "font") {
     event.respondWith(
       caches.match(request).then((cached) => {
@@ -165,32 +141,36 @@ self.addEventListener("fetch", (event) => {
             }
             return response;
           })
-          .catch(() => cached);
+          .catch(() => new Response("", { status: 404 }));
       })
     );
     return;
   }
 
-  // H. Generic Default: Stale-While-Revalidate
+  // G. Generic Default: Network-First with Safe Fallback (FIXED: NEVER RETURN NULL)
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const networkFetch = fetch(request).then(async (response) => {
+    fetch(request)
+      .then(async (response) => {
         if (response.status === 200) {
           const cache = await caches.open(CACHE_KEYS.DYNAMIC);
           cache.put(request, response.clone());
         }
         return response;
-      }).catch(() => null);
-
-      return cached || networkFetch;
-    })
+      })
+      .catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+        
+        // Return valid Response object instead of null to prevent TypeError
+        return new Response(JSON.stringify({ error: "Network unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        });
+      })
   );
 });
 
-/**
- * 4. PUSH NOTIFICATION HANDLER
- * High-reliability web push event listener
- */
+// 4. PUSH NOTIFICATION HANDLER
 self.addEventListener("push", (event) => {
   let data = {
     title: "DocFind Alert",
@@ -231,13 +211,9 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
-/**
- * 5. NOTIFICATION CLICK HANDLER
- * Smart Deep-Linking (Focus existing tab or open new window)
- */
+// 5. NOTIFICATION CLICK HANDLER
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-
   if (event.action === "close") return;
 
   const rawUrl = event.notification.data?.url || "/";
@@ -245,20 +221,17 @@ self.addEventListener("notificationclick", (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
-      // Check if tab with exact or close route is already open
       for (const client of clientList) {
         if (client.url === targetUrl && "focus" in client) {
           return client.focus();
         }
       }
-      // If no exact match, focus any tab on same origin and navigate
       for (const client of clientList) {
         if ("navigate" in client && "focus" in client) {
           client.focus();
           return client.navigate(targetUrl);
         }
       }
-      // Otherwise open new window
       if (clients.openWindow) {
         return clients.openWindow(targetUrl);
       }
@@ -266,10 +239,7 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
-/**
- * 6. CLIENT MESSAGING (IPC)
- * Force cache update or skip waiting on demand
- */
+// 6. CLIENT MESSAGING (IPC)
 self.addEventListener("message", (event) => {
   if (!event.data) return;
 
