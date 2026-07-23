@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { 
@@ -24,6 +24,9 @@ export interface AppointmentData {
   id: string;
   appointment_date: string;
   start_time?: string;
+  doctor_id?: string;
+  patient_id?: string;
+  status?: string;
   doctors: { id: string; full_name: string; specialization: string } | null;
   clinics: { id: string; name: string } | null;
   has_reviewed?: boolean;
@@ -42,6 +45,7 @@ function PatientReviewsContent({
 }: ReviewPageProps) {
   const isEmbedded = Boolean(propAppointment); // Check if called inside Appointments page
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [patientId, setPatientId] = useState<string | null>(propPatientId || null);
   const [step, setStep] = useState<"list" | "submit">(isEmbedded ? "submit" : "list");
@@ -53,7 +57,8 @@ function PatientReviewsContent({
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentData | null>(propAppointment || null);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
-  
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
@@ -81,7 +86,7 @@ function PatientReviewsContent({
         if (user) {
           setCurrentUser(user);
 
-          let resolvedPatientId = propPatientId;
+          let resolvedPatientId = propPatientId || propAppointment?.patient_id;
 
           if (!resolvedPatientId) {
             const { data: profileById } = await supabase
@@ -136,6 +141,8 @@ function PatientReviewsContent({
           appointment_date, 
           start_time, 
           status, 
+          doctor_id,
+          patient_id,
           doctors (id, full_name, specialization), 
           clinics (id, name)
         `)
@@ -159,10 +166,14 @@ function PatientReviewsContent({
           reviewsData?.map((r: { appointment_id: string }) => r.appointment_id) || []
         );
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const withReviewFlag = appointmentsData.map((apt: any) => ({
           id: apt.id,
           appointment_date: apt.appointment_date,
           start_time: apt.start_time,
+          doctor_id: apt.doctor_id,
+          patient_id: apt.patient_id,
+          status: apt.status,
           doctors: apt.doctors,
           clinics: apt.clinics,
           has_reviewed: reviewedIds.has(apt.id),
@@ -181,19 +192,24 @@ function PatientReviewsContent({
   // REAL SYSTEM LOGIC: Handle Review Submission to Database
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedAppointment || !patientId) {
-      setError("Missing appointment or patient context.");
+    setError(null);
+    
+    // Fallback extraction to ensure RLS policies pass
+    const targetDoctorId = selectedAppointment?.doctors?.id || selectedAppointment?.doctor_id;
+    const targetPatientId = patientId || selectedAppointment?.patient_id || currentUser?.id;
+
+    if (!selectedAppointment?.id || !targetDoctorId || !targetPatientId) {
+      setError("Missing exact appointment details. Please refresh and try again.");
       return;
     }
 
     setSubmitting(true);
-    setError(null);
 
     try {
       // 🚀 Inserting directly into Supabase 'reviews' table linked to Doctor ID
       const { error: reviewError } = await supabase.from("reviews").insert({
-        doctor_id: selectedAppointment.doctors?.id,
-        patient_id: patientId,
+        doctor_id: targetDoctorId,
+        patient_id: targetPatientId,
         appointment_id: selectedAppointment.id,
         rating,
         comment: comment.trim() || null,
@@ -202,10 +218,10 @@ function PatientReviewsContent({
 
       if (reviewError) {
         console.error("Review insert error:", reviewError);
-        setError("Failed to submit your review. Please try again.");
+        setError(reviewError.message || "Failed to submit your review. Please try again.");
       } else {
         setSuccess("Review submitted successfully! The doctor will see this on their profile.");
-        
+
         setAppointments((prev) => 
           prev.map((a) => a.id === selectedAppointment.id ? { ...a, has_reviewed: true } : a)
         );
@@ -240,7 +256,7 @@ function PatientReviewsContent({
   if (loading && appointments.length === 0 && !isEmbedded) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-        <Loader2 className="w-10 h-10 animate-spin" style={{ color: "#36d1cf" }} />
+        <Loader2 className="w-10 h-10 animate-spin text-[#36d1cf]" />
         <p className="mt-4 text-sm font-semibold text-gray-500 uppercase tracking-wider animate-pulse">
           Loading Real Doctor Reviews...
         </p>
@@ -255,15 +271,15 @@ function PatientReviewsContent({
         <header className="bg-white border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4 py-6">
             <div className="flex items-center justify-between">
-              <button onClick={() => router.push("/patient")} className="flex items-center gap-2">
-                <Stethoscope className="w-8 h-8" style={{ color: "#36d1cf" }} />
+              <button type="button" onClick={() => router.push("/patient")} className="flex items-center gap-2">
+                <Stethoscope className="w-8 h-8 text-[#36d1cf]" />
                 <span className="text-xl font-bold text-gray-900">DocFind</span>
               </button>
               <div className="flex items-center gap-4">
-                <button onClick={() => router.push("/patient/chats")} className="text-sm text-gray-600 hover:text-gray-900">Chats</button>
-                <button onClick={() => router.push("/patient/favorites")} className="text-sm text-gray-600 hover:text-gray-900">Favorites</button>
-                <button onClick={() => router.push("/patient/notifications")} className="text-sm text-gray-600 hover:text-gray-900">Notifications</button>
-                <button onClick={() => router.push("/patient")} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl transition-colors hover:bg-teal-600 shadow-sm" style={{ backgroundColor: "#36d1cf" }}>
+                <button type="button" onClick={() => router.push("/patient/chats")} className="text-sm text-gray-600 hover:text-gray-900">Chats</button>
+                <button type="button" onClick={() => router.push("/patient/favorites")} className="text-sm text-gray-600 hover:text-gray-900">Favorites</button>
+                <button type="button" onClick={() => router.push("/patient/notifications")} className="text-sm text-gray-600 hover:text-gray-900">Notifications</button>
+                <button type="button" onClick={() => router.push("/patient")} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl bg-[#36d1cf] transition-colors hover:bg-teal-600 shadow-sm">
                   <User className="w-4 h-4" /> Find Doctors
                 </button>
               </div>
@@ -310,7 +326,7 @@ function PatientReviewsContent({
                         </div>
                         <div className="min-w-0">
                           <p className="font-bold text-gray-900 truncate">{apt.doctors?.full_name || "Doctor"}</p>
-                          <p className="text-sm font-semibold" style={{ color: "#36d1cf" }}>{apt.doctors?.specialization}</p>
+                          <p className="text-sm font-semibold text-[#36d1cf]">{apt.doctors?.specialization}</p>
                           <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
                             <Calendar className="w-3.5 h-3.5" />
                             <span>{formatDate(apt.appointment_date)} • {apt.clinics?.name}</span>
@@ -325,14 +341,14 @@ function PatientReviewsContent({
                           </span>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => { 
                               setSelectedAppointment(apt); 
                               setStep("submit"); 
                               setError(null); 
                               setSuccess(null); 
                             }}
-                            className="px-4 py-2 rounded-lg text-white text-sm font-bold shadow-sm transition-colors hover:bg-teal-600"
-                            style={{ backgroundColor: "#36d1cf" }}
+                            className="px-4 py-2 rounded-lg text-white text-sm font-bold shadow-sm bg-[#36d1cf] transition-colors hover:bg-teal-600"
                           >
                             Write Review
                           </button>
@@ -349,9 +365,9 @@ function PatientReviewsContent({
                   <p className="text-gray-700 font-bold">No completed appointments yet</p>
                   <p className="text-sm text-gray-500 mt-1">Once you complete an appointment, you'll be able to leave feedback here.</p>
                   <button 
+                    type="button"
                     onClick={() => router.push("/patient")} 
-                    className="mt-6 px-6 py-2.5 text-white font-bold text-sm rounded-xl shadow-md transition-colors hover:bg-teal-600" 
-                    style={{ backgroundColor: "#36d1cf" }}
+                    className="mt-6 px-6 py-2.5 text-white font-bold text-sm rounded-xl shadow-md bg-[#36d1cf] transition-colors hover:bg-teal-600" 
                   >
                     Find Doctors
                   </button>
@@ -398,7 +414,7 @@ function PatientReviewsContent({
                         onClick={() => setRating(star)}
                         className="p-1.5 transition-transform hover:scale-110 active:scale-95 outline-none"
                       >
-                        {/* 🌟 UPDATED: Professional Yellow Stars (#FFC107) */}
+                        {/* 🌟 Professional Yellow Stars */}
                         <Star
                           className="w-10 h-10 transition-colors drop-shadow-sm"
                           style={{ 
@@ -413,19 +429,23 @@ function PatientReviewsContent({
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                  <label htmlFor="review-comment" className="block text-sm font-bold text-gray-700 mb-2">
                     Your Experience (optional)
                   </label>
+                  {/* 🚀 BULLETPROOF KEYBOARD FIX FOR MOBILE */}
                   <textarea
+                    id="review-comment"
+                    ref={textareaRef}
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
+                    onClick={() => textareaRef.current?.focus()}
+                    onTouchStart={(e) => e.stopPropagation()}
                     rows={4}
                     placeholder="Describe how your appointment went. Sharing your experience helps other patients find the right care..."
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#36d1cf]/30 focus:border-[#36d1cf] resize-none leading-relaxed text-sm"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#36d1cf] focus:border-[#36d1cf] resize-none leading-relaxed text-sm bg-white text-gray-900 relative z-20 appearance-none"
+                    style={{ WebkitUserSelect: "text", userSelect: "text" }}
                   />
                 </div>
-
-                {error && <p className="text-sm text-red-600 font-semibold">{error}</p>}
 
                 <div className="flex gap-3">
                   <button
@@ -445,8 +465,7 @@ function PatientReviewsContent({
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 py-3 text-white font-bold rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm transition-colors hover:bg-teal-600"
-                    style={{ backgroundColor: "#36d1cf" }}
+                    className="flex-1 py-3 text-white font-bold rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm bg-[#36d1cf] transition-colors hover:bg-teal-600"
                   >
                     {submitting ? (
                       <Loader2 className="w-5 h-5 animate-spin" />
@@ -473,7 +492,7 @@ export default function PatientReviewsPage(props: ReviewPageProps) {
     <AuthGuard currentPath="/patient/reviews">
       <Suspense fallback={
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} />
+          <Loader2 className="w-8 h-8 animate-spin text-[#36d1cf]" />
         </div>
       }>
         <PatientReviewsContent {...props} />
