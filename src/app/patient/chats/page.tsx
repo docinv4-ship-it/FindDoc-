@@ -8,7 +8,6 @@ import {
   MessageCircle, 
   Send, 
   User, 
-  Stethoscope, 
   ArrowLeft, 
   Calendar, 
   MoreVertical, 
@@ -16,8 +15,6 @@ import {
   Flag, 
   X, 
   AlertTriangle, 
-  Mail, 
-  ShieldCheck,
   Paperclip,
   Check,
   CheckCheck,
@@ -353,95 +350,66 @@ export function PatientChatsContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
-        <Loader2 className="w-10 h-10 animate-spin text-[#36d1cf]" />
-        <p className="mt-4 text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">
-          Connecting Encrypted Patient Portal...
-        </p>
+      <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6">
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <button onClick={() => router.push("/patient")} className="flex items-center gap-2 bg-transparent border-0 cursor-pointer">
-            <div className="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center border border-teal-100">
-              <Stethoscope className="w-5 h-5 text-[#36d1cf]" />
-            </div>
-            <span className="text-lg font-black tracking-tight text-slate-900">DocFind <span className="text-[#36d1cf] text-xs uppercase px-1.5 py-0.5 bg-teal-50 rounded font-bold border border-teal-100">Care</span></span>
-          </button>
+    <div className="min-h-screen bg-[#fafafa] flex flex-col">
+      {/* LOCAL HEADER REMOVED - GLOBAL LAYOUT HEADER WILL TAKE OVER */}
 
-          <button 
-            onClick={() => router.push(FIND_DOCTORS_ROUTE)} 
-            className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors border-0 cursor-pointer"
-          >
-            <User className="w-3.5 h-3.5" /> Find Doctors
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-5xl w-full mx-auto px-4 py-6 flex-1 flex flex-col">
+      <main className="max-w-3xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 flex flex-col">
         {error && (
-          <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl mb-4 flex items-center gap-3 text-xs font-semibold">
-            <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+          <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-6 flex items-center gap-2 text-sm font-medium">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
         {step === "chats" && (
           <div className="flex-1 flex flex-col">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5">
-              <div>
-                <h1 className="text-xl font-extrabold text-slate-900">My Consultations</h1>
-                {currentUser && (
-                  <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 font-medium">
-                    <Mail className="w-3.5 h-3.5 text-slate-400" /> {currentUser.email}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-1.5 bg-teal-50 text-[#14b8a6] px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border border-teal-100">
-                <ShieldCheck className="w-3.5 h-3.5" /> HIPAA Encrypted
-              </div>
+            {/* CLEAN MINIMAL HEADER */}
+            <div className="mb-6">
+              <h1 className="text-xl font-bold text-gray-900">My Consultations</h1>
             </div>
 
             {/* Search Filter */}
-            <div className="relative mb-4">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <div className="relative mb-6">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search doctors or clinic name..."
-                className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#36d1cf]"
+                className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#36d1cf] focus:border-[#36d1cf] transition-all shadow-sm"
               />
             </div>
 
             {filteredConversations.length > 0 ? (
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {filteredConversations.map((conv) => (
-                  <div key={conv.id} onClick={() => openConversation(conv)} className="bg-white rounded-xl border border-slate-200 p-3.5 cursor-pointer hover:border-teal-300 hover:shadow-sm transition-all">
-                    <div className="flex items-center gap-3.5">
-                      <div className="w-12 h-12 rounded-full flex items-center justify-center bg-teal-50 border border-teal-100 flex-shrink-0 relative">
+                  <div key={conv.id} onClick={() => openConversation(conv)} className="bg-white rounded-xl border border-gray-200 p-4 cursor-pointer hover:shadow-md transition-shadow">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full flex items-center justify-center bg-gray-50 border border-gray-100 flex-shrink-0 relative">
                         {conv.doctors?.profile_image_url ? (
                           <img src={conv.doctors.profile_image_url} alt="" className="w-full h-full object-cover rounded-full" />
                         ) : (
-                          <User className="w-5 h-5 text-[#36d1cf]" />
+                          <User className="w-5 h-5 text-gray-400" />
                         )}
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <p className="font-bold text-slate-900 text-sm truncate">{conv.doctors?.full_name || "Doctor"}</p>
-                          <span className="text-[10px] font-semibold text-slate-400">{formatChatTimestamp(conv.last_message_at)}</span>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="font-bold text-gray-900 text-[15px] truncate">{conv.doctors?.full_name || "Doctor"}</p>
+                          <span className="text-[11px] font-semibold text-gray-400">{formatChatTimestamp(conv.last_message_at)}</span>
                         </div>
-                        <p className="text-xs text-slate-500 font-medium truncate">{conv.clinics?.name || "Clinic Portal"}</p>
-                        <p className="text-xs text-slate-400 truncate mt-1">{conv.last_message_preview || "Click to open conversation thread"}</p>
+                        <p className="text-[13px] text-gray-500 font-medium truncate">{conv.clinics?.name || "Clinic Portal"}</p>
+                        <p className="text-[12px] text-gray-400 truncate mt-1">{conv.last_message_preview || "Click to open conversation thread"}</p>
                       </div>
 
-                      <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${conv.status === "active" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-slate-100 text-slate-600"}`}>
+                      <div className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${conv.status === "active" ? "bg-teal-50 text-[#36d1cf]" : "bg-gray-100 text-gray-500"}`}>
                         {conv.status}
                       </div>
                     </div>
@@ -450,10 +418,10 @@ export function PatientChatsContent() {
               </div>
             ) : (
               !error && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs my-auto">
-                  <MessageCircle className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-slate-800 font-extrabold text-sm">No Active Consultations</p>
-                  <p className="text-xs text-slate-500 mt-1">Book an appointment with a clinic doctor to initiate live consultation chat.</p>
+                <div className="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center my-auto">
+                  <MessageCircle className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-800 font-bold text-sm">No Active Consultations</p>
+                  <p className="text-xs text-gray-500 mt-2 font-medium">Book an appointment to start chatting.</p>
                 </div>
               )
             )}
@@ -461,43 +429,43 @@ export function PatientChatsContent() {
         )}
 
         {step === "chat" && selectedConversation && (
-          <div className="flex-1 flex flex-col h-full">
-            <button onClick={() => { setStep("chats"); setSelectedConversation(null); setShowMenu(false); setShowReportModal(false); }} className="flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 mb-3 bg-transparent border-0 cursor-pointer w-fit">
+          <div className="flex-1 flex flex-col h-[80vh]">
+            <button onClick={() => { setStep("chats"); setSelectedConversation(null); setShowMenu(false); setShowReportModal(false); }} className="flex items-center gap-1.5 text-sm font-bold text-gray-600 hover:text-gray-900 mb-4 bg-transparent border-0 cursor-pointer w-fit transition-colors">
               <ArrowLeft className="w-4 h-4" /> Back to Consultations
             </button>
 
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs flex-1 flex flex-col min-h-[550px]">
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm flex-1 flex flex-col">
               {/* Header */}
-              <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center bg-teal-50 border border-teal-100 flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center bg-white border border-gray-200 flex-shrink-0">
                     {selectedConversation.doctors?.profile_image_url ? (
                       <img src={selectedConversation.doctors.profile_image_url} alt="" className="w-full h-full object-cover rounded-full" />
                     ) : (
-                      <User className="w-5 h-5 text-[#36d1cf]" />
+                      <User className="w-5 h-5 text-gray-400" />
                     )}
                   </div>
                   <div>
-                    <p className="font-bold text-slate-900 text-xs sm:text-sm">{selectedConversation.doctors?.full_name || "Doctor"}</p>
-                    <p className="text-[11px] text-slate-500 font-medium">{selectedConversation.clinics?.name || "Clinic Consultation Room"}</p>
+                    <p className="font-bold text-gray-900 text-sm">{selectedConversation.doctors?.full_name || "Doctor"}</p>
+                    <p className="text-[12px] text-gray-500 font-medium">{selectedConversation.clinics?.name || "Clinic Consultation Room"}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button onClick={() => router.push(`/clinic/${selectedConversation.clinics?.slug || selectedConversation.clinic_id}?doctor=${selectedConversation.doctor_id}`)} className="flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-bold rounded-lg shadow-2xs hover:bg-teal-600 border-0 cursor-pointer transition-colors" style={{ backgroundColor: "#36d1cf" }}>
+                  <button onClick={() => router.push(`/clinic/${selectedConversation.clinics?.slug || selectedConversation.clinic_id}?doctor=${selectedConversation.doctor_id}`)} className="flex items-center gap-1.5 px-3 py-2 bg-gray-900 hover:bg-gray-800 text-white text-xs font-bold rounded-lg border-0 cursor-pointer transition-colors">
                     <Calendar className="w-3.5 h-3.5" /> Book
                   </button>
 
                   <div className="relative" ref={menuRef}>
-                    <button onClick={() => setShowMenu(!showMenu)} className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors border-0 bg-transparent cursor-pointer">
-                      <MoreVertical className="w-4 h-4 text-slate-600" />
+                    <button onClick={() => setShowMenu(!showMenu)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors border-0 bg-transparent cursor-pointer">
+                      <MoreVertical className="w-4 h-4 text-gray-600" />
                     </button>
                     {showMenu && (
-                      <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 min-w-[160px] overflow-hidden">
-                        <button onClick={isBlocked ? handleUnblockUser : handleBlockUser} className="w-full flex items-center gap-2 px-3.5 py-2 text-xs text-left hover:bg-slate-50 text-rose-600 font-bold bg-transparent border-0 cursor-pointer">
+                      <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 min-w-[160px] overflow-hidden">
+                        <button onClick={isBlocked ? handleUnblockUser : handleBlockUser} className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-left hover:bg-gray-50 text-red-600 font-bold bg-transparent border-0 cursor-pointer">
                           {isBlocked ? <><X className="w-3.5 h-3.5" /> Unblock Doctor</> : <><Ban className="w-3.5 h-3.5" /> Block Doctor</>}
                         </button>
-                        <button onClick={() => { setShowMenu(false); setShowReportModal(true); }} className="w-full flex items-center gap-2 px-3.5 py-2 text-xs text-left hover:bg-slate-50 text-amber-600 border-t border-slate-100 font-bold bg-transparent cursor-pointer">
+                        <button onClick={() => { setShowMenu(false); setShowReportModal(true); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-left hover:bg-gray-50 text-yellow-600 border-t border-gray-100 font-bold bg-transparent cursor-pointer">
                           <Flag className="w-3.5 h-3.5" /> Report Doctor
                         </button>
                       </div>
@@ -507,18 +475,18 @@ export function PatientChatsContent() {
               </div>
 
               {/* Message Thread */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/60 max-h-[420px]">
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white">
                 {messages.map((msg) => {
                   const isPatient = msg.sender_type === "patient";
                   return (
                     <div key={msg.id} className={`flex ${isPatient ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[80%] sm:max-w-md px-3.5 py-2.5 rounded-2xl shadow-2xs ${isPatient ? "text-white rounded-br-none" : "bg-white border border-slate-200 text-slate-900 rounded-bl-none"}`} style={isPatient ? { backgroundColor: "#36d1cf" } : {}}>
+                      <div className={`max-w-[80%] sm:max-w-md px-4 py-3 rounded-2xl ${isPatient ? "text-white rounded-br-none" : "bg-gray-100 text-gray-900 rounded-bl-none"}`} style={isPatient ? { backgroundColor: "#36d1cf" } : {}}>
                         {msg.attachment_url && (
                           <div className="mb-2">
                             {msg.attachment_type === "image" ? (
                               <img src={msg.attachment_url} alt="Attached Medical File" className="max-w-full rounded-lg max-h-48 object-cover border border-white/20" />
                             ) : (
-                              <a href={msg.attachment_url} target="_blank" rel="noreferrer" className={`flex items-center gap-2 p-2 rounded-lg text-xs font-bold underline ${isPatient ? "bg-white/20 text-white" : "bg-slate-100 text-slate-800"}`}>
+                              <a href={msg.attachment_url} target="_blank" rel="noreferrer" className={`flex items-center gap-2 p-2 rounded-lg text-xs font-bold underline ${isPatient ? "bg-white/20 text-white" : "bg-gray-200 text-gray-800"}`}>
                                 <FileText className="w-4 h-4 flex-shrink-0" />
                                 <span className="truncate flex-1">{msg.attachment_name || "Download Report PDF"}</span>
                                 <Download className="w-3.5 h-3.5" />
@@ -527,12 +495,12 @@ export function PatientChatsContent() {
                           </div>
                         )}
 
-                        {msg.content && <p className="text-xs font-medium leading-relaxed whitespace-pre-wrap">{msg.content}</p>}
+                        {msg.content && <p className="text-[13px] font-medium leading-relaxed whitespace-pre-wrap">{msg.content}</p>}
 
-                        <div className={`flex items-center justify-end gap-1 text-[9px] mt-1 font-semibold ${isPatient ? "text-white/80" : "text-slate-400"}`}>
+                        <div className={`flex items-center justify-end gap-1 text-[10px] mt-1.5 font-semibold ${isPatient ? "text-white/80" : "text-gray-500"}`}>
                           <span>{formatFullTime(msg.created_at)}</span>
                           {isPatient && (
-                            msg.is_read ? <CheckCheck className="w-3 h-3 text-white" /> : <Check className="w-3 h-3 text-white/80" />
+                            msg.is_read ? <CheckCheck className="w-3.5 h-3.5 text-white" /> : <Check className="w-3.5 h-3.5 text-white/80" />
                           )}
                         </div>
                       </div>
@@ -544,19 +512,19 @@ export function PatientChatsContent() {
 
               {/* Attachment Preview Bar */}
               {selectedFile && (
-                <div className="px-4 py-2 bg-teal-50/80 border-t border-teal-100 flex items-center justify-between text-xs text-teal-800">
+                <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between text-xs text-gray-700">
                   <div className="flex items-center gap-2 truncate">
                     <Paperclip className="w-4 h-4 text-[#36d1cf]" />
                     <span className="font-bold truncate">{selectedFile.name}</span>
                   </div>
-                  <button onClick={() => setSelectedFile(null)} className="text-slate-400 hover:text-rose-600 bg-transparent border-0 cursor-pointer">
+                  <button onClick={() => setSelectedFile(null)} className="text-gray-400 hover:text-red-600 bg-transparent border-0 cursor-pointer">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
               )}
 
               {/* Footer Input */}
-              <form onSubmit={sendMessage} className="p-3 border-t border-slate-200 flex items-center gap-2 bg-white">
+              <form onSubmit={sendMessage} className="p-3 border-t border-gray-200 flex items-center gap-2 bg-white">
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -569,28 +537,28 @@ export function PatientChatsContent() {
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingFile}
-                  className="p-2.5 rounded-xl text-slate-500 hover:bg-slate-100 border-0 bg-transparent cursor-pointer disabled:opacity-50 transition-colors"
-                  title="Attach Medical Report / Image"
+                  className="p-2.5 rounded-lg text-gray-500 hover:bg-gray-100 border-0 bg-transparent cursor-pointer disabled:opacity-50 transition-colors"
+                  title="Attach File"
                 >
-                  {uploadingFile ? <Loader2 className="w-4 h-4 animate-spin text-[#36d1cf]" /> : <Paperclip className="w-4 h-4" />}
+                  {uploadingFile ? <Loader2 className="w-4 h-4 animate-spin text-[#36d1cf]" /> : <Paperclip className="w-5 h-5" />}
                 </button>
 
                 <input 
                   type="text" 
                   value={newMessage} 
                   onChange={(e) => setNewMessage(e.target.value)} 
-                  placeholder={isBlocked ? "Messaging disabled due to active block" : "Type a secure message..."} 
+                  placeholder={isBlocked ? "Messaging disabled" : "Type a message..."} 
                   disabled={isBlocked}
-                  className="flex-1 px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#36d1cf] disabled:bg-slate-100" 
+                  className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-1 focus:ring-[#36d1cf] focus:border-[#36d1cf] disabled:bg-gray-100 transition-all" 
                 />
 
                 <button 
                   type="submit" 
                   disabled={sending || isBlocked || (!newMessage.trim() && !selectedFile)} 
-                  className="p-2.5 rounded-xl text-white disabled:opacity-50 flex items-center justify-center border-0 cursor-pointer transition-transform active:scale-95" 
+                  className="p-2.5 rounded-lg text-white disabled:opacity-50 flex items-center justify-center border-0 cursor-pointer transition-transform active:scale-95" 
                   style={{ backgroundColor: "#36d1cf" }}
                 >
-                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                 </button>
               </form>
             </div>
@@ -600,26 +568,26 @@ export function PatientChatsContent() {
 
       {/* Report Modal */}
       {showReportModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl animate-in fade-in duration-150">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+        <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-full bg-yellow-50 flex items-center justify-center text-yellow-600">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-extrabold text-slate-900 text-sm">Report Doctor</h3>
-                <p className="text-[11px] text-slate-500">File an encrypted violation report</p>
+                <h3 className="font-bold text-gray-900 text-sm">Report Doctor</h3>
+                <p className="text-xs text-gray-500">File a violation report</p>
               </div>
             </div>
 
-            <form onSubmit={handleSubmitReport} className="space-y-3">
+            <form onSubmit={handleSubmitReport} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Violation Category</label>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Violation Category</label>
                 <select
                   value={reportReason}
                   onChange={(e) => setReportReason(e.target.value)}
                   required
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#36d1cf] bg-white text-xs font-medium text-slate-800"
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#36d1cf] text-sm font-medium text-gray-900"
                 >
                   <option value="">Select reason</option>
                   <option value="inappropriate_behavior">Inappropriate Conduct</option>
@@ -630,13 +598,13 @@ export function PatientChatsContent() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Details (Optional)</label>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Details (Optional)</label>
                 <textarea
                   value={reportDescription}
                   onChange={(e) => setReportDescription(e.target.value)}
                   rows={3}
-                  placeholder="Describe your concern clearly..."
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#36d1cf] text-xs resize-none"
+                  placeholder="Describe your concern..."
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#36d1cf] text-sm resize-none"
                 />
               </div>
 
@@ -644,14 +612,14 @@ export function PatientChatsContent() {
                 <button
                   type="button"
                   onClick={() => { setShowReportModal(false); setReportReason(""); setReportDescription(""); }}
-                  className="flex-1 py-2 border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 font-bold text-xs bg-transparent cursor-pointer"
+                  className="flex-1 py-2.5 border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 font-bold text-sm bg-transparent cursor-pointer transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submittingReport || !reportReason.trim()}
-                  className="flex-1 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs disabled:opacity-50 flex items-center justify-center border-0 cursor-pointer"
+                  className="flex-1 py-2.5 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-bold text-sm disabled:opacity-50 flex items-center justify-center border-0 cursor-pointer transition-colors"
                 >
                   {submittingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit Report"}
                 </button>
@@ -668,8 +636,8 @@ export default function PatientChatsPage() {
   return (
     <AuthGuard currentPath="/patient/chats">
       <Suspense fallback={
-        <div className="flex items-center justify-center h-screen bg-slate-50">
-          <Loader2 className="w-8 h-8 animate-spin text-[#36d1cf]" />
+        <div className="flex items-center justify-center h-screen bg-[#fafafa]">
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} />
         </div>
       }>
         <PatientChatsContent />
