@@ -178,7 +178,7 @@ function PatientReviewsContent({
     }
   };
 
-  // Handle Review Submission
+  // REAL SYSTEM LOGIC: Handle Review Submission to Database
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAppointment || !patientId) {
@@ -190,6 +190,7 @@ function PatientReviewsContent({
     setError(null);
 
     try {
+      // 🚀 Inserting directly into Supabase 'reviews' table linked to Doctor ID
       const { error: reviewError } = await supabase.from("reviews").insert({
         doctor_id: selectedAppointment.doctors?.id,
         patient_id: patientId,
@@ -203,7 +204,7 @@ function PatientReviewsContent({
         console.error("Review insert error:", reviewError);
         setError("Failed to submit your review. Please try again.");
       } else {
-        setSuccess("Review submitted successfully!");
+        setSuccess("Review submitted successfully! The doctor will see this on their profile.");
         
         setAppointments((prev) => 
           prev.map((a) => a.id === selectedAppointment.id ? { ...a, has_reviewed: true } : a)
@@ -219,7 +220,7 @@ function PatientReviewsContent({
             setRating(5);
             setComment("");
           }
-        }, 1500);
+        }, 2000);
       }
     } catch (err) {
       console.error("Review submit error:", err);
@@ -241,7 +242,7 @@ function PatientReviewsContent({
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
         <Loader2 className="w-10 h-10 animate-spin" style={{ color: "#36d1cf" }} />
         <p className="mt-4 text-sm font-semibold text-gray-500 uppercase tracking-wider animate-pulse">
-          Syncing Doctor Reviews...
+          Loading Real Doctor Reviews...
         </p>
       </div>
     );
@@ -395,13 +396,15 @@ function PatientReviewsContent({
                         key={star}
                         type="button"
                         onClick={() => setRating(star)}
-                        className="p-1.5 transition-transform hover:scale-110 active:scale-95"
+                        className="p-1.5 transition-transform hover:scale-110 active:scale-95 outline-none"
                       >
+                        {/* 🌟 UPDATED: Professional Yellow Stars (#FFC107) */}
                         <Star
-                          className="w-9 h-9 transition-colors"
+                          className="w-10 h-10 transition-colors drop-shadow-sm"
                           style={{ 
-                            color: star <= rating ? "#36d1cf" : "#e5e7eb", 
-                            fill: star <= rating ? "#36d1cf" : "transparent" 
+                            color: star <= rating ? "#FFC107" : "#e5e7eb", 
+                            fill: star <= rating ? "#FFC107" : "transparent",
+                            strokeWidth: star <= rating ? 1.5 : 2
                           }}
                         />
                       </button>
