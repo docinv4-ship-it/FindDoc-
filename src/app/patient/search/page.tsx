@@ -23,7 +23,6 @@ export default function PatientSearchPage() {
 
   // --- Real-time Filter States ---
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedSpecialty, setSelectedSpecialty] = useState<string>("All");
   
   const [isDistanceEnabled, setIsDistanceEnabled] = useState(false);
   const [maxDistance, setMaxDistance] = useState<number>(10); 
@@ -33,11 +32,7 @@ export default function PatientSearchPage() {
 
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
-  // --- Dynamic Options from DB ---
-  const [specializations, setSpecializations] = useState<string[]>([]);
-
   const router = useRouter();
-  const pathname = usePathname();
   const filterPanelRef = useRef<HTMLDivElement>(null);
   const filterBtnRef = useRef<HTMLButtonElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -79,18 +74,11 @@ export default function PatientSearchPage() {
               ...doc,
               clinics: finalClinics,
               featured_listings: doc.featured_listings || [],
-              calculated_distance: Math.floor(Math.random() * 95) + 1 // Simulated distance
+              calculated_distance: Math.floor(Math.random() * 95) + 1 // Simulated distance for UI testing
             };
           });
 
           setDoctors(normalizedDoctors);
-
-          // Extract unique specializations for filters
-          const specSet = new Set<string>();
-          normalizedDoctors.forEach((doc) => {
-            if (doc.specialization) specSet.add(doc.specialization);
-          });
-          setSpecializations(Array.from(specSet).sort());
         }
       } catch (err) {
         console.error("Fetch error:", err);
@@ -129,21 +117,17 @@ export default function PatientSearchPage() {
       fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
       docType.toLowerCase().includes(searchQuery.toLowerCase());
 
-    // Specialty
-    const matchesType = selectedSpecialty === "All" || docType === selectedSpecialty;
-
     // Distance
     const matchesDist = !isDistanceEnabled || docDistance <= maxDistance;
 
     // Price
     const matchesPrice = !isPriceEnabled || docFee <= maxPrice;
 
-    return matchesSearch && matchesType && matchesDist && matchesPrice;
+    return matchesSearch && matchesDist && matchesPrice;
   });
 
   // Calculate active filters badge count
   let activeCount = 0;
-  if (selectedSpecialty !== "All") activeCount++;
   if (isDistanceEnabled) activeCount++;
   if (isPriceEnabled) activeCount++;
 
@@ -162,7 +146,6 @@ export default function PatientSearchPage() {
 
   return (
     <>
-      {/* --- 100% Exact HTML/CSS Injected Here --- */}
       <style dangerouslySetInnerHTML={{ __html: `
         :root {
           --cyan: #06b6d4;
@@ -281,19 +264,6 @@ export default function PatientSearchPage() {
         .filter-label { font-size: 14px; font-weight: 700; color: var(--slate-800); }
         .filter-val { font-size: 13px; font-weight: 600; color: var(--cyan); }
 
-        .custom-select {
-          width: 100%;
-          padding: 12px 14px;
-          border-radius: 12px;
-          border: 1px solid var(--slate-200);
-          background: var(--slate-50);
-          font-size: 14px;
-          color: var(--slate-900);
-          outline: none;
-          font-weight: 500;
-        }
-        .custom-select:focus { border-color: var(--cyan); }
-
         .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
         .toggle-switch input { opacity: 0; width: 0; height: 0; }
         .toggle-slider {
@@ -325,16 +295,7 @@ export default function PatientSearchPage() {
         }
         .apply-btn:hover { background: var(--slate-800); }
 
-        .categories { padding: 16px 20px 8px; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
-        .categories::-webkit-scrollbar { display: none; }
-        .cat-btn {
-          display: inline-block; padding: 10px 20px; margin-right: 8px; border-radius: 12px;
-          font-size: 13px; font-weight: 600; border: 1px solid var(--slate-200);
-          background: white; color: var(--slate-600); cursor: pointer; transition: all 0.2s;
-        }
-        .cat-btn.active { background: var(--slate-900); color: white; border-color: var(--slate-900); }
-
-        .results-header { padding: 0 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .results-header { padding: 0 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; margin-top: 16px; }
         .doctor-container { padding: 0 20px; display: flex; flex-direction: column; gap: 16px; }
         
         .doctor-card {
@@ -367,12 +328,6 @@ export default function PatientSearchPage() {
         <div className="sticky-header">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h1 style={{ fontSize: '24px', fontWeight: '800', letterSpacing: '-0.5px', margin: 0 }}>Find Doctors</h1>
-            {/* User Session Handler inside Header (Optional UI integration) */}
-            {user ? (
-               <button onClick={async () => { await supabase.auth.signOut(); setUser(null); }} style={{ background:'transparent', border:'none', color:'var(--slate-500)', fontSize:'12px', fontWeight:'600', cursor:'pointer' }}>Logout</button>
-            ) : (
-               <button onClick={() => setIsAuthModalOpen(true)} style={{ background:'var(--slate-100)', border:'none', padding:'6px 12px', borderRadius:'8px', color:'var(--slate-900)', fontSize:'12px', fontWeight:'700', cursor:'pointer' }}>Sign In</button>
-            )}
           </div>
           
           <div className="search-bar">
@@ -403,23 +358,6 @@ export default function PatientSearchPage() {
             {isFilterPanelOpen && (
               <div className="filter-panel" ref={filterPanelRef} style={{ display: 'block' }}>
                 
-                {/* Doctor Type / Specialty (Dynamically Rendered from DB) */}
-                <div className="filter-group">
-                  <div className="filter-header">
-                    <span className="filter-label">Specialty / Type</span>
-                  </div>
-                  <select 
-                    className="custom-select"
-                    value={selectedSpecialty}
-                    onChange={(e) => setSelectedSpecialty(e.target.value)}
-                  >
-                    <option value="All">All Specialties</option>
-                    {specializations.map(spec => (
-                      <option key={spec} value={spec}>{spec}</option>
-                    ))}
-                  </select>
-                </div>
-
                 {/* Distance Toggle & Slider */}
                 <div className="filter-group">
                   <div className="filter-header">
@@ -484,29 +422,10 @@ export default function PatientSearchPage() {
           </div>
         </div>
 
-        {/* Categories Quick Bar (Dynamic) */}
-        <div className="categories">
-          <button 
-            className={`cat-btn ${selectedSpecialty === "All" ? 'active' : ''}`}
-            onClick={() => setSelectedSpecialty("All")}
-          >
-            All
-          </button>
-          {specializations.slice(0, 8).map(spec => (
-            <button 
-              key={spec}
-              className={`cat-btn ${selectedSpecialty === spec ? 'active' : ''}`}
-              onClick={() => setSelectedSpecialty(spec)}
-            >
-              {spec}
-            </button>
-          ))}
-        </div>
-
         {/* Results Area */}
         <div className="results-header">
           <span style={{ fontSize: '13px', color: 'var(--slate-500)', fontWeight: '600' }}>
-            Showing {filteredDoctors.length} result{filteredDoctors.length !== 1 ? 's' : ''}
+            Showing {filteredDoctors.length} doctors
           </span>
           <span style={{ fontSize: '13px', color: 'var(--cyan)', fontWeight: '700', cursor: 'pointer' }}>
             Nearest ⚙️
