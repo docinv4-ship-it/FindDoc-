@@ -9,7 +9,6 @@ import {
   Clock, 
   MapPin, 
   User, 
-  Stethoscope, 
   X, 
   AlertCircle, 
   RefreshCw, 
@@ -247,21 +246,10 @@ export default function PatientAppointmentsContent() {
 
   return (
     <div className="min-h-screen bg-[#fafafa]">
-      {/* Top Navbar */}
-      <header className="bg-white border-b border-gray-100">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <button onClick={() => router.push("/patient")} className="flex items-center gap-2">
-              <Stethoscope className="w-6 h-6" style={{ color: "#36d1cf" }} />
-              <span className="text-lg font-bold text-gray-900 tracking-tight">DocFind</span>
-            </button>
-            <nav className="flex items-center gap-5">
-              <button onClick={() => router.push("/patient/favorites")} className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors">Favorites</button>
-              <button onClick={() => router.push("/patient/chats")} className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors">Chats</button>
-            </nav>
-          </div>
-        </div>
-      </header>
+      {/* 
+        NOTE: Local Header is completely removed. 
+        Your global layout header will automatically take over this space cleanly.
+      */}
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
