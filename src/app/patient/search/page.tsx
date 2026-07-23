@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, usePathname } from "next/navigation";
 import AuthModal from "@/components/AuthModal";
@@ -9,9 +9,35 @@ import type { Database } from "@/types/database";
 type Doctor = Database["public"]["Tables"]["doctors"]["Row"];
 
 interface DoctorWithClinic extends Doctor {
-  clinics: { id: string; slug?: string; name: string; address: string; city: string; consultation_fee: number }[];
+  clinics: { 
+    id: string; 
+    slug?: string; 
+    name: string; 
+    address: string; 
+    city: string; 
+    consultation_fee: number;
+    latitude?: number | null;
+    longitude?: number | null;
+  }[];
   featured_listings?: { status: string; expires_at: string }[];
   calculated_distance?: number;
+}
+
+// --- THE BRAIN: Haversine Distance Calculator (Earth's Curvature Math) ---
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+  const R = 6371; // Earth's radius in KM
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c;
+  return parseFloat(distance.toFixed(1)); // 1 decimal point accuracy
 }
 
 export default function PatientSearchPage() {
@@ -21,15 +47,16 @@ export default function PatientSearchPage() {
   const [user, setUser] = useState<any>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
+  // --- Real-time Geolocation States ---
+  const [patientLocation, setPatientLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationStatus, setLocationStatus] = useState<"detecting" | "granted" | "denied">("detecting");
+
   // --- Real-time Filter States ---
   const [searchQuery, setSearchQuery] = useState("");
-  
   const [isDistanceEnabled, setIsDistanceEnabled] = useState(false);
   const [maxDistance, setMaxDistance] = useState<number>(10); 
-  
   const [isPriceEnabled, setIsPriceEnabled] = useState(false);
   const [maxPrice, setMaxPrice] = useState<number>(2500); 
-
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
   const router = useRouter();
@@ -38,7 +65,29 @@ export default function PatientSearchPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
-  // --- 1. Fetch Real Data ---
+  // --- 1. Detect Patient Location on Load ---
+  useEffect(() => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setPatientLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+          setLocationStatus("granted");
+        },
+        (error) => {
+          console.warn("Patient denied location or error:", error);
+          setLocationStatus("denied");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    } else {
+      setLocationStatus("denied");
+    }
+  }, []);
+
+  // --- 2. Fetch Real Data From Supabase ---
   useEffect(() => {
     const fetchDataAndSession = async () => {
       try {
@@ -49,35 +98,29 @@ export default function PatientSearchPage() {
         }
 
         let doctorsData: any[] | null = null;
-        
         console.log("🔍 Fetching doctors...");
+        
+        // Added latitude, longitude in the select query
         const { data, error } = await supabase
           .from("doctors")
-          .select(`*, clinics (id, slug, name, address, city, consultation_fee), featured_listings (status, expires_at)`)
+          .select(`*, clinics (id, slug, name, address, city, consultation_fee, latitude, longitude), featured_listings (status, expires_at)`)
           .eq("is_onboarded", true);
 
         if (!error && data) {
           doctorsData = data;
         } else {
-          // Fallback if is_onboarded is not strictly used
-          const fallback = await supabase.from("doctors").select(`*, clinics (id, slug, name, address, city, consultation_fee)`);
+          const fallback = await supabase.from("doctors").select(`*, clinics (id, slug, name, address, city, consultation_fee, latitude, longitude)`);
           doctorsData = fallback.data;
         }
 
         if (doctorsData && doctorsData.length > 0) {
           const normalizedDoctors: DoctorWithClinic[] = doctorsData.map((doc: any) => {
-            let finalClinics = [];
-            if (doc.clinics) {
-              finalClinics = Array.isArray(doc.clinics) ? doc.clinics : [doc.clinics];
-            }
             return {
               ...doc,
-              clinics: finalClinics,
+              clinics: Array.isArray(doc.clinics) ? doc.clinics : doc.clinics ? [doc.clinics] : [],
               featured_listings: doc.featured_listings || [],
-              calculated_distance: Math.floor(Math.random() * 95) + 1 // Simulated distance for UI testing
             };
           });
-
           setDoctors(normalizedDoctors);
         }
       } catch (err) {
@@ -90,7 +133,7 @@ export default function PatientSearchPage() {
     fetchDataAndSession();
   }, []);
 
-  // --- 2. Outside Click Handler for Filter Panel ---
+  // --- 3. Outside Click Handler for Filter Panel ---
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -104,27 +147,50 @@ export default function PatientSearchPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // --- 3. Filter Engine ---
-  const filteredDoctors = doctors.filter((doc) => {
-    const fullName = doc.full_name || "";
-    const docType = doc.specialization || "";
-    const primaryClinic = doc.clinics?.[0];
-    const docFee = primaryClinic?.consultation_fee || 0;
-    const docDistance = doc.calculated_distance || 0;
+  // --- 4. THE FILTER & SORT ENGINE (Real-Time Computation) ---
+  const filteredDoctors = useMemo(() => {
+    // Step A: Calculate Real Distances
+    let processedDocs = doctors.map(doc => {
+      const primaryClinic = doc.clinics?.[0];
+      let dist = 0;
+      
+      if (patientLocation && primaryClinic?.latitude && primaryClinic?.longitude) {
+        dist = calculateDistance(
+          patientLocation.lat,
+          patientLocation.lng,
+          primaryClinic.latitude,
+          primaryClinic.longitude
+        );
+      }
+      return { ...doc, calculated_distance: dist };
+    });
 
-    // Search
-    const matchesSearch = !searchQuery || 
-      fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      docType.toLowerCase().includes(searchQuery.toLowerCase());
+    // Step B: Apply Strict Filters
+    processedDocs = processedDocs.filter((doc) => {
+      const fullName = doc.full_name || "";
+      const docType = doc.specialization || "";
+      const primaryClinic = doc.clinics?.[0];
+      const docFee = primaryClinic?.consultation_fee || 0;
+      const docDistance = doc.calculated_distance || 0;
 
-    // Distance
-    const matchesDist = !isDistanceEnabled || docDistance <= maxDistance;
+      const matchesSearch = !searchQuery || 
+        fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        docType.toLowerCase().includes(searchQuery.toLowerCase());
 
-    // Price
-    const matchesPrice = !isPriceEnabled || docFee <= maxPrice;
+      // Only apply distance filter if user allowed location & filter is active
+      const matchesDist = !isDistanceEnabled || !patientLocation || docDistance <= maxDistance;
+      const matchesPrice = !isPriceEnabled || docFee <= maxPrice;
 
-    return matchesSearch && matchesDist && matchesPrice;
-  });
+      return matchesSearch && matchesDist && matchesPrice;
+    });
+
+    // Step C: Auto-Sort (Elon-Level frictionless priority)
+    if (patientLocation && locationStatus === "granted") {
+      processedDocs.sort((a, b) => (a.calculated_distance || 0) - (b.calculated_distance || 0));
+    }
+
+    return processedDocs;
+  }, [doctors, patientLocation, locationStatus, searchQuery, isDistanceEnabled, maxDistance, isPriceEnabled, maxPrice]);
 
   // Calculate active filters badge count
   let activeCount = 0;
@@ -139,7 +205,7 @@ export default function PatientSearchPage() {
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'white' }}>
-        <h2 style={{ color: '#06b6d4', fontFamily: 'system-ui' }}>Loading Doctors...</h2>
+        <h2 style={{ color: '#06b6d4', fontFamily: 'system-ui' }}>Loading Nearest Doctors...</h2>
       </div>
     );
   }
@@ -259,6 +325,11 @@ export default function PatientSearchPage() {
           to { opacity: 1; transform: translateY(0); }
         }
 
+        @keyframes statusPing {
+          0% { transform: scale(1); opacity: 1; }
+          75%, 100% { transform: scale(2); opacity: 0; }
+        }
+
         .filter-group { margin-bottom: 20px; }
         .filter-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
         .filter-label { font-size: 14px; font-weight: 700; color: var(--slate-800); }
@@ -323,13 +394,13 @@ export default function PatientSearchPage() {
       `}} />
 
       <div className="next-gen-wrapper">
-        
+
         {/* Sticky Header */}
         <div className="sticky-header">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h1 style={{ fontSize: '24px', fontWeight: '800', letterSpacing: '-0.5px', margin: 0 }}>Find Doctors</h1>
           </div>
-          
+
           <div className="search-bar">
             <div className="search-input">
               🔍
@@ -357,7 +428,7 @@ export default function PatientSearchPage() {
             {/* Smart Dropdown Filter Panel */}
             {isFilterPanelOpen && (
               <div className="filter-panel" ref={filterPanelRef} style={{ display: 'block' }}>
-                
+
                 {/* Distance Toggle & Slider */}
                 <div className="filter-group">
                   <div className="filter-header">
@@ -384,6 +455,12 @@ export default function PatientSearchPage() {
                     onChange={(e) => setMaxDistance(Number(e.target.value))}
                     disabled={!isDistanceEnabled}
                   />
+                  {/* Warning if trying to use distance without GPS */}
+                  {isDistanceEnabled && locationStatus !== "granted" && (
+                     <p style={{ fontSize: '11px', color: 'var(--danger)', marginTop: '8px', fontWeight: '600' }}>
+                       ⚠️ Please allow location access to filter by distance.
+                     </p>
+                  )}
                 </div>
 
                 {/* Price Toggle & Slider */}
@@ -422,13 +499,38 @@ export default function PatientSearchPage() {
           </div>
         </div>
 
+        {/* Live GPS Status Banner */}
+        <div style={{ padding: '0 20px', marginTop: '20px' }}>
+          <div style={{ 
+            background: 'var(--slate-900)', color: 'white', padding: '12px 16px', 
+            borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' 
+          }}>
+            <span style={{ position: 'relative', display: 'flex', width: '10px', height: '10px' }}>
+              <span style={{ 
+                animation: 'statusPing 1.5s cubic-bezier(0, 0, 0.2, 1) infinite', 
+                position: 'absolute', height: '100%', width: '100%', borderRadius: '50%', 
+                backgroundColor: locationStatus === 'granted' ? '#34d399' : '#fbbf24' 
+              }}></span>
+              <span style={{ 
+                position: 'relative', borderRadius: '50%', height: '10px', width: '10px', 
+                backgroundColor: locationStatus === 'granted' ? '#10b981' : '#f59e0b' 
+              }}></span>
+            </span>
+            <span style={{ fontWeight: 600 }}>
+              {locationStatus === "detecting" && "Detecting your live location..."}
+              {locationStatus === "granted" && "Live GPS active • Auto-sorted by nearest distance"}
+              {locationStatus === "denied" && "Location disabled • Showing standard listing"}
+            </span>
+          </div>
+        </div>
+
         {/* Results Area */}
         <div className="results-header">
           <span style={{ fontSize: '13px', color: 'var(--slate-500)', fontWeight: '600' }}>
             Showing {filteredDoctors.length} doctors
           </span>
-          <span style={{ fontSize: '13px', color: 'var(--cyan)', fontWeight: '700', cursor: 'pointer' }}>
-            Nearest ⚙️
+          <span style={{ fontSize: '13px', color: 'var(--cyan)', fontWeight: '700' }}>
+            {locationStatus === "granted" ? "Nearest First 📍" : "Standard View 👁️"}
           </span>
         </div>
 
@@ -444,7 +546,7 @@ export default function PatientSearchPage() {
               const clinicName = primaryClinic?.name || "Independent Clinic";
               const fee = primaryClinic?.consultation_fee || 0;
               const targetSlug = primaryClinic?.slug || primaryClinic?.id || doc.id;
-              
+
               // Fallback Data
               const exp = doc.experience_years || 5; 
               const rating = 4.8; 
@@ -467,11 +569,37 @@ export default function PatientSearchPage() {
                         </div>
                         <div className="rating">⭐ {rating}</div>
                       </div>
+
+                      {/* GPS & Distance Badge Info Area */}
                       <div style={{ marginTop: '10px', fontSize: '13px', color: 'var(--slate-500)', lineHeight: '1.6', fontWeight: '500' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                           <span style={{ color: 'var(--slate-800)', fontWeight: '700' }}>📍 {doc.calculated_distance} km</span> • {clinicName}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          {locationStatus === "granted" && doc.calculated_distance! > 0 ? (
+                            <span style={{ color: 'var(--cyan-dark)', background: '#cffafe', padding: '2px 8px', borderRadius: '8px', fontWeight: '800' }}>
+                              📍 {doc.calculated_distance} km away
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--slate-500)', fontWeight: '600' }}>
+                              📍 Location off
+                            </span>
+                          )}
+                          <span>• {clinicName}</span>
+
+                          {/* Navigation Button inside Card */}
+                          {primaryClinic?.latitude && primaryClinic?.longitude && (
+                            <a 
+                              href={`https://www.google.com/maps/dir/?api=1&destination=${primaryClinic.latitude},${primaryClinic.longitude}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              style={{ marginLeft: 'auto', fontSize: '12px', color: '#3b82f6', fontWeight: '700', textDecoration: 'none' }}
+                            >
+                              Directions ↗
+                            </a>
+                          )}
                         </div>
-                        <div>{exp} Years Exp. • <strong style={{ color: 'var(--slate-900)' }}>Rs. {fee}</strong></div>
+
+                        <div style={{ marginTop: '4px' }}>
+                          {exp} Years Exp. • <strong style={{ color: 'var(--slate-900)' }}>Rs. {fee}</strong>
+                        </div>
                       </div>
                     </div>
                   </div>
