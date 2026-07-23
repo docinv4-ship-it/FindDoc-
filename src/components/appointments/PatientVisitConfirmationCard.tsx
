@@ -1,0 +1,85 @@
+import React, { useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+
+interface PendingPromptProps {
+  appointmentId: string;
+  doctorName: string;
+  clinicName: string;
+  appointmentDate: string;
+  onSuccess: () => void;
+}
+
+export const PatientVisitConfirmationCard: React.FC<PendingPromptProps> = ({
+  appointmentId,
+  doctorName,
+  clinicName,
+  appointmentDate,
+  onSuccess,
+}) => {
+  const [loading, setLoading] = useState(false);
+
+  const handleResponse = async (confirmed: boolean) => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('patient_confirm_appointment', {
+        p_appointment_id: appointmentId,
+        p_confirmed: confirmed,
+        p_issue_reason: confirmed ? null : 'Patient flagged via automated prompt',
+      });
+
+      if (error) throw error;
+
+      if (data.status === 'completed') {
+        alert('Thank you! You can now leave a review for Dr. ' + doctorName);
+      } else {
+        alert('Your response was logged. Our support team will verify the appointment.');
+      }
+
+      onSuccess();
+    } catch (err: any) {
+      alert(err.message || 'Error updating status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-indigo-100 p-5 rounded-2xl shadow-sm my-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <span className="bg-indigo-100 text-indigo-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+            Visit Verification
+          </span>
+          <h3 className="text-base font-bold text-gray-900 mt-2">
+            Did you complete your consultation with Dr. {doctorName}?
+          </h3>
+          <p className="text-xs text-gray-600 mt-1">
+            {clinicName} • {appointmentDate}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center space-x-3">
+        <button
+          onClick={() => handleResponse(true)}
+          disabled={loading}
+          className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
+        >
+          {loading ? 'Verifying...' : 'Yes, I Visited'}
+        </button>
+
+        <button
+          onClick={() => handleResponse(false)}
+          disabled={loading}
+          className="bg-white hover:bg-gray-100 text-gray-700 font-medium py-2 px-4 border border-gray-200 rounded-xl text-sm transition-all disabled:opacity-50"
+        >
+          No / Problem
+        </button>
+      </div>
+      
+      <p className="text-[11px] text-gray-400 mt-2 text-center">
+        Unanswered prompts auto-complete after 24 hours.
+      </p>
+    </div>
+  );
+};
