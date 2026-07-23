@@ -17,67 +17,98 @@ import {
 } from "lucide-react";
 import AuthGuard from "@/components/AuthGuard";
 
-interface CompletedAppointment {
+// ==========================================
+// 🛠️ TYPES & PROPS INTERFACE
+// ==========================================
+export interface AppointmentData {
   id: string;
   appointment_date: string;
-  start_time: string;
+  start_time?: string;
   doctors: { id: string; full_name: string; specialization: string } | null;
   clinics: { id: string; name: string } | null;
-  has_reviewed: boolean;
+  has_reviewed?: boolean;
 }
 
-function PatientReviewsContent() {
+export interface ReviewPageProps {
+  appointment?: AppointmentData | null;
+  patientId?: string | null;
+  onReviewComplete?: () => void;
+}
+
+function PatientReviewsContent({
+  appointment: propAppointment,
+  patientId: propPatientId,
+  onReviewComplete
+}: ReviewPageProps) {
+  const isEmbedded = Boolean(propAppointment); // Check if called inside Appointments page
+
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [patientId, setPatientId] = useState<string | null>(null);
-  const [step, setStep] = useState<"list" | "submit">("list");
-  const [loading, setLoading] = useState(true);
+  const [patientId, setPatientId] = useState<string | null>(propPatientId || null);
+  const [step, setStep] = useState<"list" | "submit">(isEmbedded ? "submit" : "list");
+  const [loading, setLoading] = useState(!isEmbedded);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [appointments, setAppointments] = useState<CompletedAppointment[]>([]);
-  const [selectedAppointment, setSelectedAppointment] = useState<CompletedAppointment | null>(null);
+  const [appointments, setAppointments] = useState<AppointmentData[]>([]);
+  const [selectedAppointment, setSelectedAppointment] = useState<AppointmentData | null>(propAppointment || null);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
-  const router = useRouter();
   
+  const router = useRouter();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
-  // Load User Session & Resolve Patient Identity
+  // Update selected appointment if prop changes
+  useEffect(() => {
+    if (propAppointment) {
+      setSelectedAppointment(propAppointment);
+      setStep("submit");
+    }
+  }, [propAppointment]);
+
+  // Load User Session & Resolve Patient Identity if not provided
   useEffect(() => {
     const initializeReviews = async () => {
+      if (propPatientId && propAppointment) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           setCurrentUser(user);
-          
-          // Step 1: Match by Auth User ID
-          let patientProfile = null;
-          const { data: profileById } = await supabase
-            .from("patients")
-            .select("id")
-            .eq("id", user.id)
-            .maybeSingle();
 
-          patientProfile = profileById;
+          let resolvedPatientId = propPatientId;
 
-          // Step 2: Fallback to Email Lookup if ID match is not linked yet
-          if (!patientProfile && user.email) {
-            const { data: profileByEmail } = await supabase
+          if (!resolvedPatientId) {
+            const { data: profileById } = await supabase
               .from("patients")
               .select("id")
-              .eq("email", user.email)
+              .eq("id", user.id)
               .maybeSingle();
-            patientProfile = profileByEmail;
+
+            resolvedPatientId = profileById?.id;
+
+            if (!resolvedPatientId && user.email) {
+              const { data: profileByEmail } = await supabase
+                .from("patients")
+                .select("id")
+                .eq("email", user.email)
+                .maybeSingle();
+              resolvedPatientId = profileByEmail?.id;
+            }
           }
 
-          if (patientProfile) {
-            setPatientId(patientProfile.id);
-            await fetchAppointments(patientProfile.id);
+          if (resolvedPatientId) {
+            setPatientId(resolvedPatientId);
+            if (!isEmbedded) {
+              await fetchAppointments(resolvedPatientId);
+            }
           } else {
-            setError("No patient profile associated with this secure account.");
+            setError("No patient profile associated with this account.");
             setLoading(false);
           }
         } else {
@@ -92,9 +123,9 @@ function PatientReviewsContent() {
     };
 
     initializeReviews();
-  }, [supabase]);
+  }, [supabase, propPatientId, propAppointment, isEmbedded]);
 
-  // Fetch completed appointments and their review flags
+  // Fetch completed appointments and review flags for standalone page
   const fetchAppointments = async (pId: string) => {
     setLoading(true);
     try {
@@ -119,7 +150,6 @@ function PatientReviewsContent() {
       }
 
       if (appointmentsData) {
-        // Fetch all patient reviews to cross-reference
         const { data: reviewsData } = await supabase
           .from("reviews")
           .select("appointment_id")
@@ -148,11 +178,17 @@ function PatientReviewsContent() {
     }
   };
 
+  // Handle Review Submission
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedAppointment || !patientId) return;
+    if (!selectedAppointment || !patientId) {
+      setError("Missing appointment or patient context.");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
+
     try {
       const { error: reviewError } = await supabase.from("reviews").insert({
         doctor_id: selectedAppointment.doctors?.id,
@@ -168,16 +204,22 @@ function PatientReviewsContent() {
         setError("Failed to submit your review. Please try again.");
       } else {
         setSuccess("Review submitted successfully!");
+        
         setAppointments((prev) => 
           prev.map((a) => a.id === selectedAppointment.id ? { ...a, has_reviewed: true } : a)
         );
+
         setTimeout(() => {
-          setStep("list");
-          setSelectedAppointment(null);
-          setSuccess(null);
-          setRating(5);
-          setComment("");
-        }, 2000);
+          if (onReviewComplete) {
+            onReviewComplete();
+          } else {
+            setStep("list");
+            setSelectedAppointment(null);
+            setSuccess(null);
+            setRating(5);
+            setComment("");
+          }
+        }, 1500);
       }
     } catch (err) {
       console.error("Review submit error:", err);
@@ -194,7 +236,7 @@ function PatientReviewsContent() {
       year: "numeric" 
     });
 
-  if (loading && appointments.length === 0) {
+  if (loading && appointments.length === 0 && !isEmbedded) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
         <Loader2 className="w-10 h-10 animate-spin" style={{ color: "#36d1cf" }} />
@@ -206,40 +248,45 @@ function PatientReviewsContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <button onClick={() => router.push("/patient")} className="flex items-center gap-2">
-              <Stethoscope className="w-8 h-8" style={{ color: "#36d1cf" }} />
-              <span className="text-xl font-bold text-gray-900">DocFind</span>
-            </button>
-            <div className="flex items-center gap-4">
-              <button onClick={() => router.push("/patient/chats")} className="text-sm text-gray-600 hover:text-gray-900">Chats</button>
-              <button onClick={() => router.push("/patient/favorites")} className="text-sm text-gray-600 hover:text-gray-900">Favorites</button>
-              <button onClick={() => router.push("/patient/notifications")} className="text-sm text-gray-600 hover:text-gray-900">Notifications</button>
-              <button onClick={() => router.push("/patient")} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl transition-colors hover:bg-teal-600 shadow-sm" style={{ backgroundColor: "#36d1cf" }}>
-                <User className="w-4 h-4" /> Find Doctors
+    <div className={isEmbedded ? "w-full" : "min-h-screen bg-gray-50"}>
+      {/* Show full navigation header ONLY when accessed directly as a standalone page */}
+      {!isEmbedded && (
+        <header className="bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 py-6">
+            <div className="flex items-center justify-between">
+              <button onClick={() => router.push("/patient")} className="flex items-center gap-2">
+                <Stethoscope className="w-8 h-8" style={{ color: "#36d1cf" }} />
+                <span className="text-xl font-bold text-gray-900">DocFind</span>
               </button>
+              <div className="flex items-center gap-4">
+                <button onClick={() => router.push("/patient/chats")} className="text-sm text-gray-600 hover:text-gray-900">Chats</button>
+                <button onClick={() => router.push("/patient/favorites")} className="text-sm text-gray-600 hover:text-gray-900">Favorites</button>
+                <button onClick={() => router.push("/patient/notifications")} className="text-sm text-gray-600 hover:text-gray-900">Notifications</button>
+                <button onClick={() => router.push("/patient")} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl transition-colors hover:bg-teal-600 shadow-sm" style={{ backgroundColor: "#36d1cf" }}>
+                  <User className="w-4 h-4" /> Find Doctors
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
-      <main className="max-w-2xl mx-auto px-4 py-12">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-          <div>
-            <h1 className="text-2xl font-black text-gray-900">Review Doctors</h1>
-            {currentUser && (
-              <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-1">
-                <Mail className="w-4 h-4 text-gray-400" /> {currentUser.email}
-              </p>
-            )}
+      <main className={isEmbedded ? "w-full" : "max-w-2xl mx-auto px-4 py-12"}>
+        {!isEmbedded && (
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+            <div>
+              <h1 className="text-2xl font-black text-gray-900">Review Doctors</h1>
+              {currentUser && (
+                <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-1">
+                  <Mail className="w-4 h-4 text-gray-400" /> {currentUser.email}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 bg-teal-50 text-[#36d1cf] px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider">
+              <ShieldCheck className="w-4 h-4" /> Secure Profile
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 bg-teal-50 text-[#36d1cf] px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider">
-            <ShieldCheck className="w-4 h-4" /> Secure Profile
-          </div>
-        </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-6 flex items-center gap-2 text-sm">
@@ -248,7 +295,8 @@ function PatientReviewsContent() {
           </div>
         )}
 
-        {step === "list" && (
+        {/* LIST VIEW (For standalone route) */}
+        {step === "list" && !isEmbedded && (
           <div>
             {appointments.length > 0 ? (
               <div className="space-y-4">
@@ -268,7 +316,7 @@ function PatientReviewsContent() {
                           </p>
                         </div>
                       </div>
-                      
+
                       <div className="flex-shrink-0">
                         {apt.has_reviewed ? (
                           <span className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-green-50 text-green-600 border border-green-200 flex items-center gap-1">
@@ -312,13 +360,16 @@ function PatientReviewsContent() {
           </div>
         )}
 
+        {/* SUBMIT REVIEW FORM VIEW */}
         {step === "submit" && selectedAppointment && (
-          <div className="bg-white rounded-xl border border-gray-200 p-8 shadow-sm">
+          <div className="bg-white rounded-xl border border-gray-200 p-6 sm:p-8 shadow-sm">
             <div className="text-center mb-6">
               <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-teal-50 border border-teal-100">
                 <User className="w-8 h-8 text-[#36d1cf]" />
               </div>
-              <h2 className="text-xl font-bold text-gray-900">Rate Dr. {selectedAppointment.doctors?.full_name}</h2>
+              <h2 className="text-xl font-bold text-gray-900">
+                Rate Dr. {selectedAppointment.doctors?.full_name || "Doctor"}
+              </h2>
               <p className="text-sm font-medium text-gray-500 mt-1">
                 {selectedAppointment.clinics?.name} • {formatDate(selectedAppointment.appointment_date)}
               </p>
@@ -330,7 +381,7 @@ function PatientReviewsContent() {
                   <Check className="w-8 h-8 text-[#36d1cf]" />
                 </div>
                 <p className="text-gray-900 font-bold">{success}</p>
-                <p className="text-sm text-gray-500 mt-1">Returning to appointments list...</p>
+                <p className="text-sm text-gray-500 mt-1">Updating appointment status...</p>
               </div>
             ) : (
               <form onSubmit={handleSubmitReview} className="space-y-6">
@@ -376,7 +427,14 @@ function PatientReviewsContent() {
                 <div className="flex gap-3">
                   <button
                     type="button"
-                    onClick={() => { setStep("list"); setSelectedAppointment(null); }}
+                    onClick={() => {
+                      if (onReviewComplete) {
+                        onReviewComplete();
+                      } else {
+                        setStep("list");
+                        setSelectedAppointment(null);
+                      }
+                    }}
                     className="flex-1 py-3 border border-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     Cancel
@@ -406,7 +464,8 @@ function PatientReviewsContent() {
   );
 }
 
-export default function PatientReviewsPage() {
+// Default export accepting ReviewPageProps seamlessly
+export default function PatientReviewsPage(props: ReviewPageProps) {
   return (
     <AuthGuard currentPath="/patient/reviews">
       <Suspense fallback={
@@ -414,7 +473,7 @@ export default function PatientReviewsPage() {
           <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#36d1cf" }} />
         </div>
       }>
-        <PatientReviewsContent />
+        <PatientReviewsContent {...props} />
       </Suspense>
     </AuthGuard>
   );
