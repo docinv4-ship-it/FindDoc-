@@ -13,63 +13,67 @@ import {
   Mail, 
   ShieldCheck, 
   AlertCircle, 
-  CheckSquare 
+  CheckSquare,
+  CheckCircle2,
+  AlertTriangle
 } from "lucide-react";
 import AuthGuard from "@/components/AuthGuard";
-import type { Database } from "@/types/database";
 
-type Notification = Database["public"]["Tables"]["notifications"]["Row"];
+interface NotificationItem {
+  id: string;
+  user_id: string;
+  appointment_id?: string;
+  title: string;
+  body: string;
+  type: string;
+  is_read: boolean;
+  created_at: string;
+}
 
 function PatientNotificationsContent() {
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [patientId, setPatientId] = useState<string | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
   const router = useRouter();
-  
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const supabase: any = createClient();
+  const supabase = createClient();
 
-  // Automatic Authentication & Profile Resolution
   useEffect(() => {
+    let channel: any;
+
     const initializeNotifications = async () => {
       setLoading(true);
       setError(null);
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          setCurrentUser(user);
-          
-          // Match patient profile by Auth User ID or linked Email
-          let patientProfile = null;
-          const { data: profileById } = await supabase
-            .from("patients")
-            .select("id")
-            .eq("id", user.id)
-            .maybeSingle();
-
-          patientProfile = profileById;
-
-          if (!patientProfile && user.email) {
-            const { data: profileByEmail } = await supabase
-              .from("patients")
-              .select("id")
-              .eq("email", user.email)
-              .maybeSingle();
-            patientProfile = profileByEmail;
-          }
-
-          if (patientProfile) {
-            setPatientId(patientProfile.id);
-            await fetchNotifications(patientProfile.id);
-          } else {
-            setError("No patient profile associated with this user.");
-          }
-        } else {
+        if (!user) {
           setError("No authenticated session found.");
+          setLoading(false);
+          return;
         }
+
+        setCurrentUser(user);
+        await fetchNotifications(user.id);
+
+        // Realtime Subscription for live notifications feed
+        channel = supabase
+          .channel("notifications_page_feed")
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "notifications",
+              filter: `user_id=eq.${user.id}`,
+            },
+            (payload) => {
+              const newNotification = payload.new as NotificationItem;
+              setNotifications((prev) => [newNotification, ...prev]);
+            }
+          )
+          .subscribe();
+
       } catch (err) {
         console.error("Initialization error:", err);
         setError("Something went wrong establishing a secure connection.");
@@ -79,33 +83,34 @@ function PatientNotificationsContent() {
     };
 
     initializeNotifications();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
   }, [supabase]);
 
-  const fetchNotifications = async (pId: string) => {
-    setLoading(true);
+  const fetchNotifications = async (userId: string) => {
     const { data, error: fetchError } = await supabase
       .from("notifications")
       .select("*")
-      .eq("user_id", pId)
-      .eq("user_type", "patient")
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(50);
-    
+
     if (fetchError) {
       setError("Failed to sync your notifications inbox.");
     } else if (data) {
-      setNotifications(data);
+      setNotifications(data as NotificationItem[]);
     }
-    setLoading(false);
   };
 
   const markAsRead = async (notificationId: string) => {
     try {
       await supabase
         .from("notifications")
-        .update({ is_read: true, read_at: new Date().toISOString() })
+        .update({ is_read: true })
         .eq("id", notificationId);
-      
+
       setNotifications((prev) => 
         prev.map((n) => n.id === notificationId ? { ...n, is_read: true } : n)
       );
@@ -115,14 +120,14 @@ function PatientNotificationsContent() {
   };
 
   const markAllAsRead = async () => {
-    if (!patientId || notifications.length === 0) return;
+    if (!currentUser || notifications.length === 0) return;
     setMarkingAll(true);
     try {
       const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id);
       if (unreadIds.length > 0) {
         await supabase
           .from("notifications")
-          .update({ is_read: true, read_at: new Date().toISOString() })
+          .update({ is_read: true })
           .in("id", unreadIds);
 
         setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
@@ -135,7 +140,9 @@ function PatientNotificationsContent() {
   };
 
   const getIcon = (type: string) => {
-    if (type.includes("appointment")) return Calendar;
+    if (type.includes("visit") || type.includes("appointment")) return Calendar;
+    if (type.includes("review") || type.includes("completed")) return CheckCircle2;
+    if (type.includes("dispute") || type.includes("alert")) return AlertTriangle;
     if (type.includes("message")) return MessageCircle;
     return Bell;
   };
@@ -176,7 +183,6 @@ function PatientNotificationsContent() {
             </button>
             <div className="flex items-center gap-4">
               <button onClick={() => router.push("/patient/chats")} className="text-sm text-gray-600 hover:text-gray-900">Chats</button>
-              <button onClick={() => router.push("/patient/favorites")} className="text-sm text-gray-600 hover:text-gray-900">Favorites</button>
               <button onClick={() => router.push("/patient")} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl transition-colors hover:bg-teal-600 shadow-sm" style={{ backgroundColor: "#36d1cf" }}>
                 <User className="w-4 h-4" /> Find Doctors
               </button>
