@@ -1,7 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getMessaging, getToken } from "firebase/messaging";
 
-// Aapki Firebase config yahan aayegi (Environment variables se)
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -14,23 +13,32 @@ const firebaseConfig = {
 // Initialize Firebase Securely (Singleton pattern)
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
+// Aapki Firebase VAPID Key (Fallback ke sath taake Vercel par missing na ho)
+const VAPID_KEY = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || "BEJVqCFB7sE0k2CFepBSWaImTJFCrGOX86BsgvOW2ANG5EfUBO50Nq3_dVSkYTnMD93d-iOTsSnY_X15xU3_vW8";
+
 export const requestForToken = async () => {
   try {
     if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-      const messaging = getMessaging(app);
       
-      // Request Permission from User explicitly
+      // 1. Explicitly Service Worker Register karein
+      const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+
+      // 2. Request Permission
       const permission = await Notification.requestPermission();
+      
       if (permission === "granted") {
-        // VAPID KEY zaroori hai Push notifications ke liye (Firebase Console se milta hai)
+        const messaging = getMessaging(app);
+
+        // 3. Service Worker Registration ke sath Token Request Karein
         const currentToken = await getToken(messaging, { 
-          vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY 
+          vapidKey: VAPID_KEY,
+          serviceWorkerRegistration: registration 
         });
-        
+
         if (currentToken) {
           return currentToken;
         } else {
-          console.warn("No registration token available. Request permission to generate one.");
+          console.warn("No registration token available.");
           return null;
         }
       } else {
@@ -40,6 +48,6 @@ export const requestForToken = async () => {
     }
   } catch (error) {
     console.error("An error occurred while retrieving token:", error);
-    return null;
+    throw error; // Throwing error so UI catches real message
   }
 };
