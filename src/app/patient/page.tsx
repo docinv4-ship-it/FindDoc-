@@ -4,44 +4,61 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, Calendar, Loader2 } from "lucide-react";
-// 1. ADDED: Firebase Token function import karein
+import { Search, Calendar, Loader2, Bell, CheckCircle2 } from "lucide-react";
 import { requestForToken } from "@/lib/firebase/clientApp"; 
 
 export default function PatientDashboard() {
   const router = useRouter();
   const supabase = createClient();
+  
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [appointments, setAppointments] = useState<any[]>([]);
 
-  // 2. ADDED: Notification Permission & Token Sync System
-  const setupPushNotifications = useCallback(async (userId: string) => {
+  // Notification Button States
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const [btnLoading, setBtnLoading] = useState(false);
+
+  // 1. Manual Notification Trigger Handler
+  const handleEnableNotifications = async () => {
+    if (!user) return;
+    setBtnLoading(true);
+
     try {
       if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-        // User se permission mangega aur token generate karega
+        // Request Permission & Fetch FCM Token
         const token = await requestForToken();
-        
+
         if (token) {
-          console.log("FCM Token Generated on Home Page. Syncing...");
-          // Supabase 'patients' table mein token update kar dega
+          console.log("FCM Token Generated Successfully:", token);
+
+          // Save Token to Supabase Database
           const { error: dbError } = await supabase
             .from("patients")
             .update({ 
               fcm_token: token, 
               updated_at: new Date().toISOString() 
             })
-            .eq("user_id", userId);
+            .eq("user_id", user.id);
 
           if (dbError) {
             console.error("[FCM_DB_SYNC_ERROR]", dbError);
+            alert("Database Error while saving token!");
+          } else {
+            setPermissionGranted(true);
+            alert("✅ Push notifications enabled! Token saved to DB.");
           }
+        } else {
+          alert("❌ Notification permission was denied or token generation failed.");
         }
       }
     } catch (error) {
       console.error("[PUSH_NOTIFICATION_SETUP_FAILED]", error);
+      alert("Error enabling notifications. Check console.");
+    } finally {
+      setBtnLoading(false);
     }
-  }, [supabase]);
+  };
 
   useEffect(() => {
     const getData = async () => {
@@ -52,8 +69,12 @@ export default function PatientDashboard() {
       }
       setUser(session.user);
 
-      // 3. ADDED: Call Notification logic right after user is verified on Home Page
-      setupPushNotifications(session.user.id);
+      // Check if Notification Permission is already granted
+      if (typeof window !== "undefined" && "Notification" in window) {
+        if (Notification.permission === "granted") {
+          setPermissionGranted(true);
+        }
+      }
 
       // Fetch upcoming appointments real data
       const { data: appData } = await supabase
@@ -67,7 +88,7 @@ export default function PatientDashboard() {
       setLoading(false);
     };
     getData();
-  }, [router, supabase, setupPushNotifications]);
+  }, [router, supabase]);
 
   if (loading) {
     return (
@@ -92,16 +113,41 @@ export default function PatientDashboard() {
   return (
     <div className="bg-slate-50 min-h-screen text-slate-900 pb-24 font-sans selection:bg-cyan-100">
 
-      {/* Hero Greeting (Real User Data) */}
-      <div className="px-5 pt-6 pb-4">
-        <div className="text-[13px] text-slate-500 font-medium">Good morning 👋</div>
-        <div className="text-[22px] font-bold mt-0.5 tracking-tight">
-          {user?.user_metadata?.full_name || user?.email?.split('@')[0] || "Patient"}
+      {/* Hero Greeting & Notification Enable Button */}
+      <div className="px-5 pt-6 pb-2 flex justify-between items-start">
+        <div>
+          <div className="text-[13px] text-slate-500 font-medium">Good morning 👋</div>
+          <div className="text-[22px] font-bold mt-0.5 tracking-tight">
+            {user?.user_metadata?.full_name || user?.email?.split('@')[0] || "Patient"}
+          </div>
+        </div>
+
+        {/* NOTIFICATION ENABLE BUTTON / STATUS BADGE */}
+        <div>
+          {!permissionGranted ? (
+            <button
+              onClick={handleEnableNotifications}
+              disabled={btnLoading}
+              className="flex items-center gap-1.5 bg-cyan-500 hover:bg-cyan-600 text-white text-[12px] font-semibold px-3 py-2 rounded-xl transition-all shadow-sm active:scale-95"
+            >
+              {btnLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Bell className="w-3.5 h-3.5" />
+              )}
+              Enable Alerts
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold px-2.5 py-1.5 rounded-xl">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              Alerts Active
+            </div>
+          )}
         </div>
       </div>
 
       {/* Search Bar */}
-      <div className="px-5 mb-5">
+      <div className="px-5 my-4">
         <div className="bg-white border border-slate-200 h-[52px] rounded-2xl flex items-center px-4 shadow-sm focus-within:border-cyan-500 focus-within:ring-[3px] focus-within:ring-cyan-500/10 transition-all">
           <Search className="w-5 h-5 text-slate-400 shrink-0" />
           <input 
@@ -189,7 +235,6 @@ export default function PatientDashboard() {
             <Link href="/patient/search" className="text-[13px] text-cyan-500 font-semibold hover:underline">View All</Link>
           </div>
 
-          {/* Hiding scrollbar via Tailwind utility classes */}
           <div className="flex gap-3.5 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             {[
               { icon: '👨‍⚕️', name: 'Dr. Ali Raza', spec: 'Cardiologist', rating: '4.9 (120)' },
