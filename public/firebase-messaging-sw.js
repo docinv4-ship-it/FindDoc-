@@ -1,29 +1,33 @@
 importScripts("https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js");
 
-// Initialize Firebase inside Service Worker
-firebase.initializeApp({
-  apiKey: "YOUR_API_KEY", // Will fallback automatically or match env
-  authDomain: "YOUR_AUTH_DOMAIN",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID",
-});
+// Extract config params dynamically passed during service worker registration
+const locationParams = new URLSearchParams(self.location.search);
 
-const messaging = firebase.messaging();
+const firebaseConfig = {
+  apiKey: locationParams.get("apiKey") || "",
+  authDomain: locationParams.get("authDomain") || "",
+  projectId: locationParams.get("projectId") || "",
+  storageBucket: locationParams.get("storageBucket") || "",
+  messagingSenderId: locationParams.get("messagingSenderId") || "",
+  appId: locationParams.get("appId") || "",
+};
 
-// Background Message Listener
-messaging.onBackgroundMessage((payload) => {
-  console.log("[firebase-messaging-sw.js] Received background message ", payload);
+if (firebaseConfig.apiKey && firebaseConfig.projectId) {
+  firebase.initializeApp(firebaseConfig);
+  const messaging = firebase.messaging();
 
-  const notificationTitle = payload.notification?.title || "DocFind Notification";
-  const notificationOptions = {
-    body: payload.notification?.body || "You have a new update.",
-    icon: "/icon.png", // Path to app logo icon
-    badge: "/badge.png",
-    data: payload.data || {},
-  };
+  messaging.onBackgroundMessage((payload) => {
+    console.log("[firebase-messaging-sw.js] Received background message:", payload);
 
-  self.registration.showNotification(notificationTitle, notificationOptions);
-});
+    const notificationTitle = payload.notification?.title || "DocFind Notification";
+    const notificationOptions = {
+      body: payload.notification?.body || "You have a new update.",
+      icon: "/icon.png",
+      badge: "/badge.png",
+      data: payload.data || {},
+    };
+
+    self.registration.showNotification(notificationTitle, notificationOptions);
+  });
+}
