@@ -15,7 +15,7 @@ export default function PatientDashboard() {
   const [user, setUser] = useState<any>(null);
   const [appointments, setAppointments] = useState<any[]>([]);
 
-  // Notification Button States
+  // Notification Button State
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [btnLoading, setBtnLoading] = useState(false);
 
