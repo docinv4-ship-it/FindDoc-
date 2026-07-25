@@ -5,45 +5,65 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Search, Calendar, Loader2, MessageSquare, Bell, Clock } from "lucide-react";
-// Yeh aapki Firebase file honi chahiye jahan se token milta hai (Neeche file #3 di gayi hai)
 import { requestForToken } from "@/lib/firebase/clientApp"; 
 
-// Type Definitions for Production Level TypeScript
+// Type Definitions - Flexibly structured for Supabase Joined Relational Data
+interface ClinicRelation {
+  name: string;
+}
+
+interface DoctorRelation {
+  full_name: string;
+}
+
 interface Appointment {
   id: string;
   date: string;
   start_time: string;
   status: string;
-  clinics: { name: string };
-  doctors: { full_name: string };
+  clinics: ClinicRelation | ClinicRelation[] | null;
+  doctors: DoctorRelation | DoctorRelation[] | null;
 }
 
 export default function PatientDashboard() {
   const router = useRouter();
   const supabase = createClient();
-  
+
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
 
-  // 1. Data Fetching Logic (Secure & Fast)
+  // Helper functions to safely extract relation fields regardless of array/object return
+  const getClinicName = (clinic: ClinicRelation | ClinicRelation[] | null) => {
+    if (!clinic) return "Unknown Clinic";
+    if (Array.isArray(clinic)) return clinic[0]?.name || "Unknown Clinic";
+    return clinic.name;
+  };
+
+  const getDoctorName = (doctor: DoctorRelation | DoctorRelation[] | null) => {
+    if (!doctor) return "Doctor";
+    if (Array.isArray(doctor)) return doctor[0]?.full_name || "Doctor";
+    return doctor.full_name;
+  };
+
+  // 1. Data Fetching Logic
   const fetchDashboardData = useCallback(async () => {
     try {
       const { data: { session }, error: authError } = await supabase.auth.getSession();
-      
+
       if (authError || !session) {
         router.replace("/login");
         return;
       }
       setUser(session.user);
 
-      // Extract Patient ID properly (Using user_id to find actual patient record)
-      const { data: patientProfile, error: profileError } = await supabase
+      // Extract Patient ID properly
+      const { data: patientProfile } = await supabase
         .from("patients")
         .select("id")
         .eq("user_id", session.user.id)
-        .single();
-        
+        .maybeSingle();
+
       const actualPatientId = patientProfile ? patientProfile.id : session.user.id;
 
       // Fetch Upcoming Appointments
@@ -58,13 +78,15 @@ export default function PatientDashboard() {
           doctors (full_name)
         `)
         .eq("patient_id", actualPatientId)
-        .gte("date", new Date().toISOString().split('T')[0]) // Only future & today
+        .gte("date", new Date().toISOString().split("T")[0])
         .order("date", { ascending: true })
         .order("start_time", { ascending: true })
         .limit(3);
 
       if (appError) throw appError;
-      setAppointments(appData as Appointment[] || []);
+
+      // Safe unknown casting to resolve Supabase relation array vs object conflict
+      setAppointments((appData as unknown as Appointment[]) || []);
 
     } catch (err) {
       console.error("[DASHBOARD_FETCH_ERROR]", err);
@@ -73,18 +95,13 @@ export default function PatientDashboard() {
     }
   }, [router, supabase]);
 
-  // =========================================================================
-  // 2. BIG FIX: FCM TOKEN GENERATION & SYNC LOGIC
-  // =========================================================================
+  // 2. FCM TOKEN GENERATION & SYNC LOGIC
   const setupPushNotifications = useCallback(async (userId: string) => {
     try {
-      // Is browser supportive of Service Workers?
       if (typeof window !== "undefined" && "serviceWorker" in navigator) {
         const token = await requestForToken();
-        
+
         if (token) {
-          console.log("FCM Token Generated Successfully. Syncing with DB...");
-          // Save the token to the database so the webhook can find it!
           const { error: dbError } = await supabase
             .from("patients")
             .update({ 
@@ -92,7 +109,7 @@ export default function PatientDashboard() {
               updated_at: new Date().toISOString() 
             })
             .eq("user_id", userId);
-            
+
           if (dbError) console.error("[FCM_DB_SYNC_ERROR]", dbError);
         }
       }
@@ -101,19 +118,16 @@ export default function PatientDashboard() {
     }
   }, [supabase]);
 
-  // Execute on Mount
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  // Execute when user is authenticated
   useEffect(() => {
     if (user) {
       setupPushNotifications(user.id);
     }
   }, [user, setupPushNotifications]);
 
-  // 3. Loading State (Smooth UX)
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
@@ -123,11 +137,10 @@ export default function PatientDashboard() {
     );
   }
 
-  // 4. Real UI
   return (
     <div className="min-h-screen bg-slate-50 p-6 md:p-10">
       <div className="max-w-6xl mx-auto space-y-8">
-        
+
         {/* Header Section */}
         <header className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <div>
@@ -164,7 +177,6 @@ export default function PatientDashboard() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {appointments.map((apt) => (
                 <div key={apt.id} className="p-5 border border-slate-100 rounded-xl hover:shadow-md transition-shadow bg-slate-50 relative overflow-hidden">
-                  {/* Status Badge */}
                   <span className={`absolute top-4 right-4 text-xs font-bold px-2.5 py-1 rounded-full ${
                     apt.status === "confirmed" ? "bg-green-100 text-green-700" : 
                     apt.status === "pending" ? "bg-orange-100 text-orange-700" : 
@@ -173,15 +185,14 @@ export default function PatientDashboard() {
                     {apt.status.toUpperCase()}
                   </span>
 
-                  <h3 className="font-bold text-lg text-slate-800 pr-20">{apt.doctors?.full_name}</h3>
-                  <p className="text-sm text-slate-500 mb-4">{apt.clinics?.name}</p>
-                  
+                  <h3 className="font-bold text-lg text-slate-800 pr-20">{getDoctorName(apt.doctors)}</h3>
+                  <p className="text-sm text-slate-500 mb-4">{getClinicName(apt.clinics)}</p>
+
                   <div className="flex items-center gap-4 text-sm font-medium text-slate-600 mb-5">
                     <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4 text-blue-500" /> {new Date(apt.date).toLocaleDateString()}</span>
-                    <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-blue-500" /> {apt.start_time.slice(0, 5)}</span>
+                    <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-blue-500" /> {apt.start_time ? apt.start_time.slice(0, 5) : "--:--"}</span>
                   </div>
 
-                  {/* Chat Unlock Button */}
                   {apt.status === "confirmed" ? (
                     <Link href={`/patient/chat/${apt.id}`} className="flex items-center justify-center gap-2 w-full bg-blue-50 hover:bg-blue-100 text-blue-700 py-2.5 rounded-lg font-semibold transition-colors">
                       <MessageSquare className="w-4 h-4" /> Open Chat
