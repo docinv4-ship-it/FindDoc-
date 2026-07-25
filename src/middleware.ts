@@ -26,7 +26,7 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Fallback to "patient" if role is not explicitly set (e.g., fresh Google OAuth)
+  // Fallback to "patient" if role not explicitly set (e.g., fresh Google OAuth)
   const role = user?.user_metadata?.role || (user ? "patient" : undefined);
   const { pathname } = request.nextUrl;
 
