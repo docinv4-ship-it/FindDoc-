@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { messaging } from "@/lib/firebase-admin";
 
+// GET Notifications List
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -13,25 +15,46 @@ export async function GET(request: NextRequest) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase: any = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     let userId: string;
     if (userType === "doctor") {
-      const { data: doctor } = await supabase.from("doctors").select("id").eq("user_id", user.id).single();
+      const { data: doctor } = await supabase
+        .from("doctors")
+        .select("id")
+        .eq("user_id", user.id)
+        .single();
       if (!doctor) return NextResponse.json({ error: "Doctor not found" }, { status: 404 });
       userId = doctor.id;
     } else {
-      const { data: patient } = await supabase.from("patients").select("id").eq("user_id", user.id).single();
+      const { data: patient } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("user_id", user.id)
+        .single();
       if (!patient) return NextResponse.json({ error: "Patient not found" }, { status: 404 });
       userId = patient.id;
     }
 
-    let query = supabase.from("notifications").select("*").eq("user_id", userId).eq("user_type", userType).order("created_at", { ascending: false }).limit(50);
+    let query = supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("user_type", userType)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
     if (unreadOnly) query = query.eq("is_read", false);
 
     const { data: notifications, error } = await query;
-    if (error) { console.error("Error fetching notifications:", error); return NextResponse.json({ error: "Failed to fetch notifications" }, { status: 500 }); }
+    if (error) {
+      console.error("Error fetching notifications:", error);
+      return NextResponse.json({ error: "Failed to fetch notifications" }, { status: 500 });
+    }
 
     return NextResponse.json({ notifications });
   } catch {
@@ -39,6 +62,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// PATCH - Mark Notifications as Read
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
@@ -46,26 +70,122 @@ export async function PATCH(request: NextRequest) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase: any = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { data: doctor } = await supabase.from("doctors").select("id").eq("user_id", user.id).maybeSingle();
-    const { data: patient } = await supabase.from("patients").select("id").eq("user_id", user.id).maybeSingle();
+    const { data: doctor } = await supabase
+      .from("doctors")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    const { data: patient } = await supabase
+      .from("patients")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
     const userId = doctor?.id || patient?.id;
     const userType = doctor ? "doctor" : "patient";
 
     if (!userId) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
     if (all_read) {
-      const { error } = await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("user_id", userId).eq("user_type", userType).eq("is_read", false);
-      if (error) return NextResponse.json({ error: "Failed to mark notifications as read" }, { status: 500 });
+      const { error } = await supabase
+        .from("notifications")
+        .update({ is_read: true, read_at: new Date().toISOString() })
+        .eq("user_id", userId)
+        .eq("user_type", userType)
+        .eq("is_read", false);
+
+      if (error)
+        return NextResponse.json(
+          { error: "Failed to mark notifications as read" },
+          { status: 500 }
+        );
     } else if (notification_ids && notification_ids.length > 0) {
-      const { error } = await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).in("id", notification_ids).eq("user_id", userId).eq("user_type", userType);
-      if (error) return NextResponse.json({ error: "Failed to mark notifications as read" }, { status: 500 });
+      const { error } = await supabase
+        .from("notifications")
+        .update({ is_read: true, read_at: new Date().toISOString() })
+        .in("id", notification_ids)
+        .eq("user_id", userId)
+        .eq("user_type", userType);
+
+      if (error)
+        return NextResponse.json(
+          { error: "Failed to mark notifications as read" },
+          { status: 500 }
+        );
     }
 
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: "An unexpected error occurred" }, { status: 500 });
+  }
+}
+
+// POST - Trigger Real-time FCM Push Notification & Database Save
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { target_user_id, target_user_type, title, body: msgBody, type, data } = body;
+
+    if (!target_user_id || !title || !msgBody) {
+      return NextResponse.json({ error: "Missing target_user_id, title, or body" }, { status: 400 });
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase: any = await createClient();
+
+    // 1. Save in Database Notifications Table
+    await supabase.from("notifications").insert({
+      user_id: target_user_id,
+      user_type: target_user_type || "patient",
+      title: title,
+      message: msgBody,
+      type: type || "system",
+      is_read: false,
+      created_at: new Date().toISOString(),
+    });
+
+    // 2. Fetch Active FCM Token for User
+    const { data: tokenRecord } = await supabase
+      .from("user_fcm_tokens")
+      .select("fcm_token")
+      .eq("user_id", target_user_id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!tokenRecord || !tokenRecord.fcm_token) {
+      return NextResponse.json({
+        success: true,
+        fcmSent: false,
+        reason: "Notification saved to DB, but no active FCM token found for user",
+      });
+    }
+
+    // 3. Send Real-time Push via Firebase Admin
+    const fcmResponse = await messaging.send({
+      token: tokenRecord.fcm_token,
+      notification: {
+        title: title,
+        body: msgBody,
+      },
+      data: data || {},
+    });
+
+    return NextResponse.json({
+      success: true,
+      fcmSent: true,
+      messageId: fcmResponse,
+    });
+  } catch (error: unknown) {
+    const errMessage = error instanceof Error ? error.message : "Notification Error";
+    console.error("FCM Notification Error:", errMessage);
+    return NextResponse.json({ error: errMessage }, { status: 500 });
   }
 }
