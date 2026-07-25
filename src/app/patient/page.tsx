@@ -1,223 +1,201 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, Calendar, Loader2 } from "lucide-react";
+import { Search, Calendar, Loader2, MessageSquare, Bell, Clock } from "lucide-react";
+// Yeh aapki Firebase file honi chahiye jahan se token milta hai (Neeche file #3 di gayi hai)
+import { requestForToken } from "@/lib/firebase/clientApp"; 
+
+// Type Definitions for Production Level TypeScript
+interface Appointment {
+  id: string;
+  date: string;
+  start_time: string;
+  status: string;
+  clinics: { name: string };
+  doctors: { full_name: string };
+}
 
 export default function PatientDashboard() {
   const router = useRouter();
   const supabase = createClient();
+  
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
-  const [appointments, setAppointments] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
 
-  useEffect(() => {
-    const getData = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push("/login");
+  // 1. Data Fetching Logic (Secure & Fast)
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      
+      if (authError || !session) {
+        router.replace("/login");
         return;
       }
       setUser(session.user);
 
-      // Fetch upcoming appointments real data
-      const { data: appData } = await supabase
+      // Extract Patient ID properly (Using user_id to find actual patient record)
+      const { data: patientProfile, error: profileError } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("user_id", session.user.id)
+        .single();
+        
+      const actualPatientId = patientProfile ? patientProfile.id : session.user.id;
+
+      // Fetch Upcoming Appointments
+      const { data: appData, error: appError } = await supabase
         .from("appointments")
-        .select(`id, date, start_time, status, clinics (name), doctors (full_name)`)
-        .eq("patient_id", session.user.id)
+        .select(`
+          id, 
+          date, 
+          start_time, 
+          status, 
+          clinics (name), 
+          doctors (full_name)
+        `)
+        .eq("patient_id", actualPatientId)
+        .gte("date", new Date().toISOString().split('T')[0]) // Only future & today
         .order("date", { ascending: true })
+        .order("start_time", { ascending: true })
         .limit(3);
 
-      if (appData) setAppointments(appData);
+      if (appError) throw appError;
+      setAppointments(appData as Appointment[] || []);
+
+    } catch (err) {
+      console.error("[DASHBOARD_FETCH_ERROR]", err);
+    } finally {
       setLoading(false);
-    };
-    getData();
+    }
   }, [router, supabase]);
 
+  // =========================================================================
+  // 2. BIG FIX: FCM TOKEN GENERATION & SYNC LOGIC
+  // =========================================================================
+  const setupPushNotifications = useCallback(async (userId: string) => {
+    try {
+      // Is browser supportive of Service Workers?
+      if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+        const token = await requestForToken();
+        
+        if (token) {
+          console.log("FCM Token Generated Successfully. Syncing with DB...");
+          // Save the token to the database so the webhook can find it!
+          const { error: dbError } = await supabase
+            .from("patients")
+            .update({ 
+              fcm_token: token, 
+              updated_at: new Date().toISOString() 
+            })
+            .eq("user_id", userId);
+            
+          if (dbError) console.error("[FCM_DB_SYNC_ERROR]", dbError);
+        }
+      }
+    } catch (error) {
+      console.error("[PUSH_NOTIFICATION_SETUP_FAILED]", error);
+    }
+  }, [supabase]);
+
+  // Execute on Mount
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  // Execute when user is authenticated
+  useEffect(() => {
+    if (user) {
+      setupPushNotifications(user.id);
+    }
+  }, [user, setupPushNotifications]);
+
+  // 3. Loading State (Smooth UX)
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <Loader2 className="w-6 h-6 animate-spin text-cyan-500" />
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
+        <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
+        <h2 className="text-xl font-semibold text-slate-700">Loading Dashboard...</h2>
       </div>
     );
   }
 
-  // Extract first appointment for the Hero Card
-  const nextApp = appointments.length > 0 ? appointments[0] : null;
-  let doctorName = "Doctor";
-  let clinicName = "Clinic";
-  
-  if (nextApp) {
-    const doctor = Array.isArray(nextApp.doctors) ? nextApp.doctors[0] : nextApp.doctors;
-    const clinic = Array.isArray(nextApp.clinics) ? nextApp.clinics[0] : nextApp.clinics;
-    doctorName = doctor?.full_name || "Doctor";
-    clinicName = clinic?.name || "Clinic";
-  }
-
+  // 4. Real UI
   return (
-    <div className="bg-slate-50 min-h-screen text-slate-900 pb-24 font-sans selection:bg-cyan-100">
-      
-      {/* Hero Greeting (Real User Data) */}
-      <div className="px-5 pt-6 pb-4">
-        <div className="text-[13px] text-slate-500 font-medium">Good morning 👋</div>
-        <div className="text-[22px] font-bold mt-0.5 tracking-tight">
-          {user?.user_metadata?.full_name || user?.email?.split('@')[0] || "Patient"}
-        </div>
-      </div>
-
-      {/* Search Bar */}
-      <div className="px-5 mb-5">
-        <div className="bg-white border border-slate-200 h-[52px] rounded-2xl flex items-center px-4 shadow-sm focus-within:border-cyan-500 focus-within:ring-[3px] focus-within:ring-cyan-500/10 transition-all">
-          <Search className="w-5 h-5 text-slate-400 shrink-0" />
-          <input 
-            type="text" 
-            placeholder="Search doctors, specialties, clinics..." 
-            className="w-full bg-transparent outline-none ml-3 text-[14px] text-slate-900 placeholder:text-slate-400"
-          />
-        </div>
-      </div>
-
-      <div className="px-5 flex flex-col gap-5">
+    <div className="min-h-screen bg-slate-50 p-6 md:p-10">
+      <div className="max-w-6xl mx-auto space-y-8">
         
-        {/* Upcoming Appointment Highlight (Real Data Connected) */}
-        {nextApp ? (
-          <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-[20px] p-5 border-none shadow-md">
-            <div className="flex justify-between items-center mb-4">
-              <span className="font-bold text-[15px] tracking-tight text-white">Upcoming Consultation</span>
-              <span className="bg-white/10 text-cyan-300 text-[11px] font-semibold px-2.5 py-1 rounded-full capitalize">
-                {nextApp.status}
-              </span>
-            </div>
-            
-            <div className="flex items-center gap-3.5 mt-2">
-              <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-[22px]">
-                👨‍⚕️
-              </div>
-              <div>
-                <h4 className="text-[15px] font-semibold text-white">{doctorName}</h4>
-                <p className="text-[13px] text-slate-400 mt-0.5">{clinicName}</p>
-              </div>
-            </div>
-
-            <div className="mt-5 pt-3.5 border-t border-white/10 flex justify-between items-center">
-              <div className="text-[12px] text-slate-300 flex items-center gap-1.5 font-medium">
-                <Calendar className="w-[14px] h-[14px]" />
-                {nextApp.date} • {nextApp.start_time}
-              </div>
-              <Link href="/patient/appointments" className="bg-white text-slate-900 px-4 py-2 rounded-xl text-[13px] font-semibold hover:bg-slate-100 transition-colors">
-                View Details
-              </Link>
-            </div>
+        {/* Header Section */}
+        <header className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-800">Welcome Back! 👋</h1>
+            <p className="text-slate-500 mt-1">Manage your health and appointments.</p>
           </div>
-        ) : (
-          <div className="bg-white rounded-[20px] p-6 border border-slate-200 shadow-sm text-center">
-            <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-            <p className="text-[14px] font-medium text-slate-500">No upcoming bookings</p>
-            <Link href="/patient/search" className="mt-3 inline-block bg-cyan-500 text-white px-5 py-2 rounded-xl text-[13px] font-semibold shadow-sm hover:bg-cyan-600 transition-colors">
-              Find a Doctor
+          <div className="flex gap-4">
+            <Link href="/patient/search" className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-md shadow-blue-200">
+              <Search className="w-5 h-5" />
+              Find Doctor
             </Link>
           </div>
-        )}
+        </header>
 
-        {/* Quick Categories */}
-        <div className="bg-white rounded-[20px] p-5 border border-slate-200 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
-            <span className="font-bold text-[16px] tracking-tight">Categories</span>
-            <Link href="/patient/search" className="text-[13px] text-cyan-500 font-semibold hover:underline">See All</Link>
+        {/* Upcoming Appointments Section */}
+        <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <Calendar className="w-6 h-6 text-blue-500" />
+              Upcoming Appointments
+            </h2>
+            <Link href="/patient/appointments" className="text-blue-600 hover:text-blue-800 font-medium text-sm">
+              View All
+            </Link>
           </div>
 
-          <div className="grid grid-cols-4 gap-3">
-            {[
-              { icon: '🫀', label: 'Cardio' },
-              { icon: '🦷', label: 'Dental' },
-              { icon: '👁️', label: 'Vision' },
-              { icon: '🧠', label: 'Neuro' },
-              { icon: '🦴', label: 'Ortho' },
-              { icon: '👶', label: 'Pedia' },
-              { icon: '🩺', label: 'General' },
-              { icon: '⚡', label: 'More' },
-            ].map((cat, i) => (
-              <Link key={i} href="/patient/search" className="flex flex-col items-center group">
-                <div className="w-[54px] h-[54px] rounded-[14px] bg-slate-50 border border-slate-200 flex items-center justify-center text-[22px] transition-all group-hover:bg-cyan-50 group-hover:border-cyan-200 group-hover:-translate-y-0.5">
-                  {cat.icon}
+          {appointments.length === 0 ? (
+            <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+              <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <h3 className="text-lg font-medium text-slate-600">No upcoming appointments</h3>
+              <p className="text-slate-500 mt-1">Book a doctor to get started.</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {appointments.map((apt) => (
+                <div key={apt.id} className="p-5 border border-slate-100 rounded-xl hover:shadow-md transition-shadow bg-slate-50 relative overflow-hidden">
+                  {/* Status Badge */}
+                  <span className={`absolute top-4 right-4 text-xs font-bold px-2.5 py-1 rounded-full ${
+                    apt.status === "confirmed" ? "bg-green-100 text-green-700" : 
+                    apt.status === "pending" ? "bg-orange-100 text-orange-700" : 
+                    "bg-slate-200 text-slate-700"
+                  }`}>
+                    {apt.status.toUpperCase()}
+                  </span>
+
+                  <h3 className="font-bold text-lg text-slate-800 pr-20">{apt.doctors?.full_name}</h3>
+                  <p className="text-sm text-slate-500 mb-4">{apt.clinics?.name}</p>
+                  
+                  <div className="flex items-center gap-4 text-sm font-medium text-slate-600 mb-5">
+                    <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4 text-blue-500" /> {new Date(apt.date).toLocaleDateString()}</span>
+                    <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-blue-500" /> {apt.start_time.slice(0, 5)}</span>
+                  </div>
+
+                  {/* Chat Unlock Button */}
+                  {apt.status === "confirmed" ? (
+                    <Link href={`/patient/chat/${apt.id}`} className="flex items-center justify-center gap-2 w-full bg-blue-50 hover:bg-blue-100 text-blue-700 py-2.5 rounded-lg font-semibold transition-colors">
+                      <MessageSquare className="w-4 h-4" /> Open Chat
+                    </Link>
+                  ) : (
+                    <button disabled className="flex items-center justify-center gap-2 w-full bg-slate-200 text-slate-400 py-2.5 rounded-lg font-semibold cursor-not-allowed">
+                      <Bell className="w-4 h-4" /> Awaiting Confirmation
+                    </button>
+                  )}
                 </div>
-                <span className="mt-2 text-[12px] font-medium text-slate-800">{cat.label}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* Top Rated Doctors (Horizontal Scroll) */}
-        <div>
-          <div className="flex justify-between items-center mb-3 px-1">
-            <span className="font-bold text-[16px] tracking-tight">Top Rated Doctors</span>
-            <Link href="/patient/search" className="text-[13px] text-cyan-500 font-semibold hover:underline">View All</Link>
-          </div>
-
-          {/* Hiding scrollbar via Tailwind utility classes */}
-          <div className="flex gap-3.5 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            {[
-              { icon: '👨‍⚕️', name: 'Dr. Ali Raza', spec: 'Cardiologist', rating: '4.9 (120)' },
-              { icon: '👩‍⚕️', name: 'Dr. Sarah', spec: 'Dentist', rating: '4.8 (95)' },
-              { icon: '👨‍⚕️', name: 'Dr. Hamza', spec: 'Ophthalmologist', rating: '5.0 (210)' },
-            ].map((doc, i) => (
-              <div key={i} className="min-w-[160px] bg-white border border-slate-200 rounded-[20px] p-4 text-center shadow-sm">
-                <div className="w-[60px] h-[60px] rounded-full bg-cyan-50 mx-auto mb-3 flex items-center justify-center text-[26px]">
-                  {doc.icon}
-                </div>
-                <h4 className="text-[14px] font-semibold text-slate-900">{doc.name}</h4>
-                <p className="text-[12px] text-slate-500 mt-0.5 mb-2">{doc.spec}</p>
-                <div className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-bold px-2 py-0.5 rounded-md mb-3">
-                  ★ {doc.rating}
-                </div>
-                <Link href="/patient/search" className="block w-full bg-cyan-500 hover:bg-cyan-600 text-white py-2 rounded-[10px] text-[12px] font-semibold transition-colors">
-                  Book Visit
-                </Link>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Nearby Clinics */}
-        <div className="bg-white rounded-[20px] p-5 border border-slate-200 shadow-sm">
-          <div className="mb-4">
-            <span className="font-bold text-[16px] tracking-tight">Nearby Medical Centers</span>
-          </div>
-          <div className="flex flex-col">
-            {[
-              { name: 'City Medical Center', details: '📍 2.3 km • Open 24/7', rating: '4.8' },
-              { name: 'Life Care Hospital', details: '📍 3.8 km • Emergency Available', rating: '4.9' },
-            ].map((clinic, i) => (
-              <div key={i} className={`flex justify-between items-center py-3 ${i === 0 ? 'border-b border-slate-100' : ''}`}>
-                <div>
-                  <div className="text-[14px] font-semibold text-slate-900">{clinic.name}</div>
-                  <div className="text-[12px] text-slate-500 mt-1">{clinic.details}</div>
-                </div>
-                <div className="text-[12px] font-bold text-amber-500 bg-amber-50 px-2 py-1 rounded-md">★ {clinic.rating}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Daily Health Tips */}
-        <div className="bg-white rounded-[20px] p-5 border border-slate-200 shadow-sm mb-6">
-          <div className="mb-4">
-            <span className="font-bold text-[16px] tracking-tight">Daily Health Tips</span>
-          </div>
-          <div className="flex flex-col gap-2.5">
-            {[
-              { icon: '💧', text: 'Hydration target: Drink at least 2.5L water today for active focus.' },
-              { icon: '🚶', text: 'Walk 30 minutes to reduce cardiovascular risks by 19%.' },
-            ].map((tip, i) => (
-              <div key={i} className="flex gap-3 items-start p-3 bg-slate-50 rounded-[14px] border border-slate-100">
-                <span className="text-[18px]">{tip.icon}</span>
-                <div className="text-[13px] text-slate-700 leading-snug">{tip.text}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+              ))}
+            </div>
+          )}
+        </section>
 
       </div>
     </div>
