@@ -10,7 +10,7 @@ import { requestForToken } from "@/lib/firebase/clientApp";
 export default function PatientDashboard() {
   const router = useRouter();
   const supabase = createClient();
-  
+
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -32,18 +32,18 @@ export default function PatientDashboard() {
         if (token) {
           console.log("FCM Token Generated Successfully:", token);
 
-          // Save Token to Supabase Database
+          // Save Token to Supabase Database with Bulletproof Query
           const { error: dbError } = await supabase
             .from("patients")
             .update({ 
               fcm_token: token, 
               updated_at: new Date().toISOString() 
             })
-            .eq("user_id", user.id);
+            .or(`user_id.eq.${user.id},id.eq.${user.id}`); // Checks both user_id and primary key id
 
           if (dbError) {
             console.error("[FCM_DB_SYNC_ERROR]", dbError);
-            alert("Database Error while saving token!");
+            alert("Database Error: " + dbError.message);
           } else {
             setPermissionGranted(true);
             alert("✅ Push notifications enabled! Token saved to DB.");
