@@ -31,17 +31,20 @@ export default async function PatientLayout({ children }: { children: React.Reac
   const { data: { user } } = await supabase.auth.getUser();
 
   if (user) {
-    // 2. Safe query: maybeSingle() never throws error if record is creating/syncing
+    // 2. Safe query: Check both 'id' and 'user_id' column to avoid missing the trigger data
     const { data: patient } = await supabase
       .from("patients")
       .select("id")
-      .eq("user_id", user.id)
+      .or(`user_id.eq.${user.id},id.eq.${user.id}`)
       .maybeSingle();
 
-    // 3. Red Banner Fallback: Show smooth loading screen until profile exists
+    // 3. Fallback: Show smooth loading screen until profile exists
     if (!patient) {
       return (
         <div className="min-h-screen bg-gray-50/50 flex flex-col items-center justify-center p-4">
+          {/* Auto-refresh the page every 2 seconds if stuck on this screen */}
+          <meta httpEquiv="refresh" content="2" />
+          
           <div className="h-8 w-8 rounded-full border-2 border-teal-500/20 border-t-teal-600 animate-spin mb-3" />
           <p className="text-sm font-medium text-gray-600 animate-pulse">Setting up your profile...</p>
         </div>
