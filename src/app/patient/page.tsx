@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -19,42 +19,50 @@ export default function PatientDashboard() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [btnLoading, setBtnLoading] = useState(false);
 
-  // 1. Manual Notification Trigger Handler
+  // Manual Notification Trigger Handler with strict RLS & DB response check
   const handleEnableNotifications = async () => {
     if (!user) return;
     setBtnLoading(true);
 
     try {
-      if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-        // Request Permission & Fetch FCM Token
-        const token = await requestForToken();
-
-        if (token) {
-          console.log("FCM Token Generated Successfully:", token);
-
-          // Save Token to Supabase Database with Bulletproof Query
-          const { error: dbError } = await supabase
-            .from("patients")
-            .update({ 
-              fcm_token: token, 
-              updated_at: new Date().toISOString() 
-            })
-            .or(`user_id.eq.${user.id},id.eq.${user.id}`); // Checks both user_id and primary key id
-
-          if (dbError) {
-            console.error("[FCM_DB_SYNC_ERROR]", dbError);
-            alert("Database Error: " + dbError.message);
-          } else {
-            setPermissionGranted(true);
-            alert("✅ Push notifications enabled! Token saved to DB.");
-          }
-        } else {
-          alert("❌ Notification permission was denied or token generation failed.");
-        }
+      if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+        alert("Service Workers are not supported in this browser.");
+        return;
       }
-    } catch (error) {
+
+      // 1. Request Permission & Fetch FCM Token from Firebase
+      const token = await requestForToken();
+
+      if (token) {
+        console.log("✅ FCM Token Generated:", token);
+
+        // 2. Save Token to Supabase Database with double column matching
+        const { data, error: dbError } = await supabase
+          .from("patients")
+          .update({ 
+            fcm_token: token, 
+            updated_at: new Date().toISOString() 
+          })
+          .or(`user_id.eq.${user.id},id.eq.${user.id}`)
+          .select();
+
+        if (dbError) {
+          console.error("❌ SUPABASE FCM UPDATE ERROR:", dbError);
+          alert("Database Error: " + dbError.message);
+        } else if (!data || data.length === 0) {
+          console.error("❌ RLS BLOCK DETECTED: No rows were updated.");
+          alert("⚠️ Permission Error: Database RLS policy blocked the update. Please check Supabase policies.");
+        } else {
+          console.log("✅ Token successfully saved to DB:", data);
+          setPermissionGranted(true);
+          alert("✅ Push notifications enabled! Token saved to DB.");
+        }
+      } else {
+        alert("❌ Notification permission was denied or token generation failed.");
+      }
+    } catch (error: any) {
       console.error("[PUSH_NOTIFICATION_SETUP_FAILED]", error);
-      alert("Error enabling notifications. Check console.");
+      alert("Error enabling notifications: " + (error?.message || "Check console"));
     } finally {
       setBtnLoading(false);
     }
@@ -69,8 +77,16 @@ export default function PatientDashboard() {
       }
       setUser(session.user);
 
-      // Check if Notification Permission is already granted
-      if (typeof window !== "undefined" && "Notification" in window) {
+      // Check if user already has an active fcm_token saved in DB
+      const { data: patientProfile } = await supabase
+        .from("patients")
+        .select("fcm_token")
+        .or(`user_id.eq.${session.user.id},id.eq.${session.user.id}`)
+        .limit(1);
+
+      if (patientProfile && patientProfile.length > 0 && patientProfile[0].fcm_token) {
+        setPermissionGranted(true);
+      } else if (typeof window !== "undefined" && "Notification" in window) {
         if (Notification.permission === "granted") {
           setPermissionGranted(true);
         }
@@ -87,6 +103,7 @@ export default function PatientDashboard() {
       if (appData) setAppointments(appData);
       setLoading(false);
     };
+
     getData();
   }, [router, supabase]);
 
@@ -128,7 +145,7 @@ export default function PatientDashboard() {
             <button
               onClick={handleEnableNotifications}
               disabled={btnLoading}
-              className="flex items-center gap-1.5 bg-cyan-500 hover:bg-cyan-600 text-white text-[12px] font-semibold px-3 py-2 rounded-xl transition-all shadow-sm active:scale-95"
+              className="flex items-center gap-1.5 bg-cyan-500 hover:bg-cyan-600 text-white text-[12px] font-semibold px-3 py-2 rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50"
             >
               {btnLoading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -160,7 +177,7 @@ export default function PatientDashboard() {
 
       <div className="px-5 flex flex-col gap-5">
 
-        {/* Upcoming Appointment Highlight (Real Data Connected) */}
+        {/* Upcoming Appointment Highlight */}
         {nextApp ? (
           <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-[20px] p-5 border-none shadow-md">
             <div className="flex justify-between items-center mb-4">
