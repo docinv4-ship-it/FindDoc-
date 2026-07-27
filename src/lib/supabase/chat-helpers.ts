@@ -9,7 +9,7 @@ export function formatChatTimestamp(dateStr: string): string {
   const isYesterday = date.toDateString() === yesterday.toDateString();
 
   if (isToday) {
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
   }
   if (isYesterday) {
     return "Yesterday";
@@ -19,14 +19,14 @@ export function formatChatTimestamp(dateStr: string): string {
 
 export function formatFullTime(dateStr: string): string {
   if (!dateStr) return "";
-  return new Date(dateStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(dateStr).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 export const DOCTOR_QUICK_REPLIES = [
-  "Hello! Please describe your primary symptoms in detail.",
-  "When did your symptoms first start?",
-  "Please upload any recent lab reports, blood tests, or prescription images.",
-  "Take the prescribed medication twice daily after meals with water.",
-  "If fever or pain worsens, please visit the nearest clinic emergency immediately.",
-  "Your consultation session is now complete. Wishing you a swift recovery!",
+  "Hello! Please describe your symptoms in detail.",
+  "When did you first notice these symptoms?",
+  "Please upload any past prescriptions or lab reports.",
+  "Take the prescribed medicine after meals.",
+  "If the pain persists, please visit the clinic immediately.",
+  "Your consultation is marked as complete. Take care!"
 ];
