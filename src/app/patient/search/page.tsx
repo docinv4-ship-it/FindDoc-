@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import AuthModal from "@/components/AuthModal";
 import type { Database } from "@/types/database";
 
@@ -24,6 +24,7 @@ interface DoctorWithClinic extends Doctor {
 }
 
 // --- THE BRAIN: Haversine Distance Calculator (Earth's Curvature Math) ---
+// Now highly optimized to only run when strictly necessary
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
   const R = 6371; // Earth's radius in KM
@@ -37,7 +38,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   const distance = R * c;
-  return parseFloat(distance.toFixed(1)); // 1 decimal point accuracy
+  return parseFloat(distance.toFixed(1)); 
 }
 
 export default function PatientSearchPage() {
@@ -53,6 +54,7 @@ export default function PatientSearchPage() {
 
   // --- Real-time Filter States ---
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState(""); // 🔥 Fix 2: Debounce State
   const [isDistanceEnabled, setIsDistanceEnabled] = useState(false);
   const [maxDistance, setMaxDistance] = useState<number>(10); 
   const [isPriceEnabled, setIsPriceEnabled] = useState(false);
@@ -64,6 +66,14 @@ export default function PatientSearchPage() {
   const filterBtnRef = useRef<HTMLButtonElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
+
+  // 🔥 Fix 2: Implement Debounce (Prevents UI freeze on every keystroke)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300); // 300ms lightning fast delay
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // --- 1. Detect Patient Location on Load ---
   useEffect(() => {
@@ -80,7 +90,8 @@ export default function PatientSearchPage() {
           console.warn("Patient denied location or error:", error);
           setLocationStatus("denied");
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        // Timeout reduced to 5000ms so UI doesn't hang waiting for slow GPS
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
       );
     } else {
       setLocationStatus("denied");
@@ -97,30 +108,24 @@ export default function PatientSearchPage() {
           setUser(session.user);
         }
 
-        let doctorsData: any[] | null = null;
         console.log("🔍 Fetching doctors...");
-        
-        // Added latitude, longitude in the select query
         const { data, error } = await supabase
           .from("doctors")
           .select(`*, clinics (id, slug, name, address, city, consultation_fee, latitude, longitude), featured_listings (status, expires_at)`)
           .eq("is_onboarded", true);
 
-        if (!error && data) {
-          doctorsData = data;
-        } else {
+        let doctorsData = data;
+        if (error || !data) {
           const fallback = await supabase.from("doctors").select(`*, clinics (id, slug, name, address, city, consultation_fee, latitude, longitude)`);
           doctorsData = fallback.data;
         }
 
         if (doctorsData && doctorsData.length > 0) {
-          const normalizedDoctors: DoctorWithClinic[] = doctorsData.map((doc: any) => {
-            return {
-              ...doc,
-              clinics: Array.isArray(doc.clinics) ? doc.clinics : doc.clinics ? [doc.clinics] : [],
-              featured_listings: doc.featured_listings || [],
-            };
-          });
+          const normalizedDoctors: DoctorWithClinic[] = doctorsData.map((doc: any) => ({
+            ...doc,
+            clinics: Array.isArray(doc.clinics) ? doc.clinics : doc.clinics ? [doc.clinics] : [],
+            featured_listings: doc.featured_listings || [],
+          }));
           setDoctors(normalizedDoctors);
         }
       } catch (err) {
@@ -129,7 +134,6 @@ export default function PatientSearchPage() {
         setLoading(false);
       }
     };
-
     fetchDataAndSession();
   }, []);
 
@@ -147,13 +151,11 @@ export default function PatientSearchPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // --- 4. THE FILTER & SORT ENGINE (Real-Time Computation) ---
-  const filteredDoctors = useMemo(() => {
-    // Step A: Calculate Real Distances
-    let processedDocs = doctors.map(doc => {
+  // 🔥 Fix 1A: Isolate Distance Calculation (Runs ONLY when Location/Data arrives)
+  const doctorsWithDistance = useMemo(() => {
+    return doctors.map(doc => {
       const primaryClinic = doc.clinics?.[0];
       let dist = 0;
-      
       if (patientLocation && primaryClinic?.latitude && primaryClinic?.longitude) {
         dist = calculateDistance(
           patientLocation.lat,
@@ -164,35 +166,33 @@ export default function PatientSearchPage() {
       }
       return { ...doc, calculated_distance: dist };
     });
+  }, [doctors, patientLocation]);
 
-    // Step B: Apply Strict Filters
-    processedDocs = processedDocs.filter((doc) => {
+  // 🔥 Fix 1B: Filter Engine (Runs fast on Debounced Query)
+  const filteredDoctors = useMemo(() => {
+    let processedDocs = doctorsWithDistance.filter((doc) => {
       const fullName = doc.full_name || "";
       const docType = doc.specialization || "";
-      const primaryClinic = doc.clinics?.[0];
-      const docFee = primaryClinic?.consultation_fee || 0;
+      const docFee = doc.clinics?.[0]?.consultation_fee || 0;
       const docDistance = doc.calculated_distance || 0;
 
-      const matchesSearch = !searchQuery || 
-        fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        docType.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = !debouncedQuery || 
+        fullName.toLowerCase().includes(debouncedQuery.toLowerCase()) || 
+        docType.toLowerCase().includes(debouncedQuery.toLowerCase());
 
-      // Only apply distance filter if user allowed location & filter is active
       const matchesDist = !isDistanceEnabled || !patientLocation || docDistance <= maxDistance;
       const matchesPrice = !isPriceEnabled || docFee <= maxPrice;
 
       return matchesSearch && matchesDist && matchesPrice;
     });
 
-    // Step C: Auto-Sort (Elon-Level frictionless priority)
     if (patientLocation && locationStatus === "granted") {
       processedDocs.sort((a, b) => (a.calculated_distance || 0) - (b.calculated_distance || 0));
     }
 
     return processedDocs;
-  }, [doctors, patientLocation, locationStatus, searchQuery, isDistanceEnabled, maxDistance, isPriceEnabled, maxPrice]);
+  }, [doctorsWithDistance, debouncedQuery, patientLocation, locationStatus, isDistanceEnabled, maxDistance, isPriceEnabled, maxPrice]);
 
-  // Calculate active filters badge count
   let activeCount = 0;
   if (isDistanceEnabled) activeCount++;
   if (isPriceEnabled) activeCount++;
@@ -202,133 +202,58 @@ export default function PatientSearchPage() {
     else router.push(targetPath);
   };
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'white' }}>
-        <h2 style={{ color: '#06b6d4', fontFamily: 'system-ui' }}>Loading Nearest Doctors...</h2>
-      </div>
-    );
-  }
-
+  // 🔥 Fix 3: Remove Full-Page Blocking (UI loads instantly now)
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: `
         :root {
-          --cyan: #06b6d4;
-          --cyan-dark: #0891b2;
-          --slate-50: #f8fafc;
-          --slate-100: #f1f5f9;
-          --slate-200: #e2e8f0;
-          --slate-400: #94a3b8;
-          --slate-500: #64748b;
-          --slate-600: #475569;
-          --slate-800: #1e293b;
-          --slate-900: #0f172a;
-          --danger: #ef4444;
+          --cyan: #06b6d4; --cyan-dark: #0891b2;
+          --slate-50: #f8fafc; --slate-100: #f1f5f9; --slate-200: #e2e8f0;
+          --slate-400: #94a3b8; --slate-500: #64748b; --slate-600: #475569;
+          --slate-800: #1e293b; --slate-900: #0f172a; --danger: #ef4444;
         }
 
         .next-gen-wrapper {
-          background: white;
-          color: var(--slate-900);
-          min-height: 100vh;
-          padding-bottom: 80px;
-          font-family: 'Inter', system-ui, sans-serif;
+          background: white; color: var(--slate-900); min-height: 100vh;
+          padding-bottom: 80px; font-family: 'Inter', system-ui, sans-serif;
         }
 
         .sticky-header {
-          position: sticky;
-          top: 0;
-          z-index: 40;
-          background: rgba(255,255,255,0.95);
-          backdrop-filter: blur(12px);
-          border-bottom: 1px solid var(--slate-200);
-          padding: 20px 20px 12px;
+          position: sticky; top: 0; z-index: 40;
+          background: rgba(255,255,255,0.95); backdrop-filter: blur(12px);
+          border-bottom: 1px solid var(--slate-200); padding: 20px 20px 12px;
         }
 
-        .search-bar {
-          display: flex;
-          gap: 10px;
-          position: relative;
-        }
-
+        .search-bar { display: flex; gap: 10px; position: relative; }
         .search-input {
-          flex: 1;
-          height: 52px;
-          background: var(--slate-50);
-          border: 1px solid var(--slate-200);
-          border-radius: 16px;
-          padding: 0 16px;
-          display: flex;
-          align-items: center;
-          font-size: 14px;
-          transition: all 0.2s;
+          flex: 1; height: 52px; background: var(--slate-50);
+          border: 1px solid var(--slate-200); border-radius: 16px; padding: 0 16px;
+          display: flex; align-items: center; font-size: 14px; transition: all 0.2s;
         }
-
-        .search-input:focus-within {
-          border-color: var(--cyan);
-          box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.1);
-        }
+        .search-input:focus-within { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.1); }
 
         .filter-btn {
-          width: 52px;
-          height: 52px;
-          background: var(--slate-50);
-          border: 1px solid var(--slate-200);
-          border-radius: 16px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--slate-600);
-          cursor: pointer;
-          transition: all 0.2s;
-          position: relative;
+          width: 52px; height: 52px; background: var(--slate-50);
+          border: 1px solid var(--slate-200); border-radius: 16px;
+          display: flex; align-items: center; justify-content: center;
+          color: var(--slate-600); cursor: pointer; transition: all 0.2s; position: relative;
         }
-
-        .filter-btn:hover, .filter-btn.active {
-          background: var(--slate-200);
-        }
+        .filter-btn:hover, .filter-btn.active { background: var(--slate-200); }
 
         .filter-badge {
-          position: absolute;
-          top: -4px;
-          right: -4px;
-          background: var(--danger);
-          color: white;
-          font-size: 10px;
-          font-weight: 800;
-          width: 18px;
-          height: 18px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: 2px solid white;
+          position: absolute; top: -4px; right: -4px; background: var(--danger);
+          color: white; font-size: 10px; font-weight: 800; width: 18px; height: 18px;
+          border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid white;
         }
 
         .filter-panel {
-          position: absolute;
-          top: 65px;
-          right: 0;
-          width: calc(100vw - 40px);
-          max-width: 320px;
-          background: white;
-          border: 1px solid var(--slate-200);
-          border-radius: 20px;
-          padding: 20px;
-          box-shadow: 0 10px 30px -5px rgba(0,0,0,0.15);
-          z-index: 50;
-          animation: slideDown 0.2s ease-out;
+          position: absolute; top: 65px; right: 0; width: calc(100vw - 40px);
+          max-width: 320px; background: white; border: 1px solid var(--slate-200);
+          border-radius: 20px; padding: 20px; box-shadow: 0 10px 30px -5px rgba(0,0,0,0.15);
+          z-index: 50; animation: slideDown 0.2s ease-out;
         }
-
-        @keyframes slideDown {
-          from { opacity: 0; transform: translateY(-10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes statusPing {
-          0% { transform: scale(1); opacity: 1; }
-          75%, 100% { transform: scale(2); opacity: 0; }
-        }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes statusPing { 0% { transform: scale(1); opacity: 1; } 75%, 100% { transform: scale(2); opacity: 0; } }
 
         .filter-group { margin-bottom: 20px; }
         .filter-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
@@ -364,8 +289,6 @@ export default function PatientSearchPage() {
           border-radius: 14px; font-weight: 700; font-size: 15px; border: none;
           cursor: pointer; transition: all 0.2s; margin-top: 10px;
         }
-        .apply-btn:hover { background: var(--slate-800); }
-
         .results-header { padding: 0 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; margin-top: 16px; }
         .doctor-container { padding: 0 20px; display: flex; flex-direction: column; gap: 16px; }
         
@@ -374,7 +297,6 @@ export default function PatientSearchPage() {
           box-shadow: 0 4px 20px -4px rgba(0,0,0,0.03); transition: all 0.3s; animation: fadeIn 0.4s ease;
         }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .doctor-card:hover { box-shadow: 0 8px 25px -5px rgba(0,0,0,0.08); border-color: var(--cyan); }
         
         .avatar {
           width: 72px; height: 72px; background: #cffafe; border: 1px solid #a5f3fc;
@@ -389,13 +311,20 @@ export default function PatientSearchPage() {
           font-weight: 600; font-size: 14px; text-decoration: none; display: inline-flex;
           align-items: center; gap: 6px; transition: all 0.2s; border: none; cursor: pointer;
         }
-        .book-btn:hover { background: var(--cyan-dark); }
         .empty-state { text-align: center; padding: 40px 20px; color: var(--slate-500); font-weight: 500; }
+
+        /* 🔥 Skeleton Loader CSS */
+        .skeleton { background: #e2e8f0; border-radius: 8px; overflow: hidden; position: relative; }
+        .skeleton::after {
+          content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+          background: linear-gradient(90deg, rgba(255,255,255,0) 0, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%);
+          animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer { 100% { transform: translateX(100%); } }
       `}} />
 
       <div className="next-gen-wrapper">
-
-        {/* Sticky Header */}
+        {/* Sticky Header loads instantly now */}
         <div className="sticky-header">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h1 style={{ fontSize: '24px', fontWeight: '800', letterSpacing: '-0.5px', margin: 0 }}>Find Doctors</h1>
@@ -418,44 +347,27 @@ export default function PatientSearchPage() {
               onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
             >
               ⚙️
-              {activeCount > 0 && (
-                <div className="filter-badge" style={{ display: 'flex' }}>
-                  {activeCount}
-                </div>
-              )}
+              {activeCount > 0 && <div className="filter-badge" style={{ display: 'flex' }}>{activeCount}</div>}
             </button>
 
             {/* Smart Dropdown Filter Panel */}
             {isFilterPanelOpen && (
               <div className="filter-panel" ref={filterPanelRef} style={{ display: 'block' }}>
-
-                {/* Distance Toggle & Slider */}
                 <div className="filter-group">
                   <div className="filter-header">
                     <div>
                       <span className="filter-label">Max Distance</span>
-                      {isDistanceEnabled && (
-                        <span className="filter-val" style={{ marginLeft: '8px' }}>{maxDistance} km</span>
-                      )}
+                      {isDistanceEnabled && <span className="filter-val" style={{ marginLeft: '8px' }}>{maxDistance} km</span>}
                     </div>
                     <label className="toggle-switch">
-                      <input 
-                        type="checkbox" 
-                        checked={isDistanceEnabled}
-                        onChange={(e) => setIsDistanceEnabled(e.target.checked)}
-                      />
+                      <input type="checkbox" checked={isDistanceEnabled} onChange={(e) => setIsDistanceEnabled(e.target.checked)} />
                       <span className="toggle-slider"></span>
                     </label>
                   </div>
                   <input 
-                    type="range" 
-                    className={`range-slider ${!isDistanceEnabled ? 'disabled' : ''}`} 
-                    min="1" max="100" 
-                    value={maxDistance}
-                    onChange={(e) => setMaxDistance(Number(e.target.value))}
-                    disabled={!isDistanceEnabled}
+                    type="range" className={`range-slider ${!isDistanceEnabled ? 'disabled' : ''}`} 
+                    min="1" max="100" value={maxDistance} onChange={(e) => setMaxDistance(Number(e.target.value))} disabled={!isDistanceEnabled}
                   />
-                  {/* Warning if trying to use distance without GPS */}
                   {isDistanceEnabled && locationStatus !== "granted" && (
                      <p style={{ fontSize: '11px', color: 'var(--danger)', marginTop: '8px', fontWeight: '600' }}>
                        ⚠️ Please allow location access to filter by distance.
@@ -463,37 +375,23 @@ export default function PatientSearchPage() {
                   )}
                 </div>
 
-                {/* Price Toggle & Slider */}
                 <div className="filter-group">
                   <div className="filter-header">
                     <div>
                       <span className="filter-label">Max Fee</span>
-                      {isPriceEnabled && (
-                         <span className="filter-val" style={{ marginLeft: '8px' }}>Rs. {maxPrice}</span>
-                      )}
+                      {isPriceEnabled && <span className="filter-val" style={{ marginLeft: '8px' }}>Rs. {maxPrice}</span>}
                     </div>
                     <label className="toggle-switch">
-                      <input 
-                        type="checkbox" 
-                        checked={isPriceEnabled}
-                        onChange={(e) => setIsPriceEnabled(e.target.checked)}
-                      />
+                      <input type="checkbox" checked={isPriceEnabled} onChange={(e) => setIsPriceEnabled(e.target.checked)} />
                       <span className="toggle-slider"></span>
                     </label>
                   </div>
                   <input 
-                    type="range" 
-                    className={`range-slider ${!isPriceEnabled ? 'disabled' : ''}`} 
-                    min="500" max="15000" step="100" 
-                    value={maxPrice}
-                    onChange={(e) => setMaxPrice(Number(e.target.value))}
-                    disabled={!isPriceEnabled}
+                    type="range" className={`range-slider ${!isPriceEnabled ? 'disabled' : ''}`} 
+                    min="500" max="15000" step="100" value={maxPrice} onChange={(e) => setMaxPrice(Number(e.target.value))} disabled={!isPriceEnabled}
                   />
                 </div>
-
-                <button className="apply-btn" onClick={() => setIsFilterPanelOpen(false)}>
-                  Apply Filters
-                </button>
+                <button className="apply-btn" onClick={() => setIsFilterPanelOpen(false)}>Apply Filters</button>
               </div>
             )}
           </div>
@@ -501,20 +399,10 @@ export default function PatientSearchPage() {
 
         {/* Live GPS Status Banner */}
         <div style={{ padding: '0 20px', marginTop: '20px' }}>
-          <div style={{ 
-            background: 'var(--slate-900)', color: 'white', padding: '12px 16px', 
-            borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' 
-          }}>
+          <div style={{ background: 'var(--slate-900)', color: 'white', padding: '12px 16px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
             <span style={{ position: 'relative', display: 'flex', width: '10px', height: '10px' }}>
-              <span style={{ 
-                animation: 'statusPing 1.5s cubic-bezier(0, 0, 0.2, 1) infinite', 
-                position: 'absolute', height: '100%', width: '100%', borderRadius: '50%', 
-                backgroundColor: locationStatus === 'granted' ? '#34d399' : '#fbbf24' 
-              }}></span>
-              <span style={{ 
-                position: 'relative', borderRadius: '50%', height: '10px', width: '10px', 
-                backgroundColor: locationStatus === 'granted' ? '#10b981' : '#f59e0b' 
-              }}></span>
+              <span style={{ animation: 'statusPing 1.5s cubic-bezier(0, 0, 0.2, 1) infinite', position: 'absolute', height: '100%', width: '100%', borderRadius: '50%', backgroundColor: locationStatus === 'granted' ? '#34d399' : '#fbbf24' }}></span>
+              <span style={{ position: 'relative', borderRadius: '50%', height: '10px', width: '10px', backgroundColor: locationStatus === 'granted' ? '#10b981' : '#f59e0b' }}></span>
             </span>
             <span style={{ fontWeight: 600 }}>
               {locationStatus === "detecting" && "Detecting your live location..."}
@@ -527,7 +415,7 @@ export default function PatientSearchPage() {
         {/* Results Area */}
         <div className="results-header">
           <span style={{ fontSize: '13px', color: 'var(--slate-500)', fontWeight: '600' }}>
-            Showing {filteredDoctors.length} doctors
+            Showing {loading ? '...' : filteredDoctors.length} doctors
           </span>
           <span style={{ fontSize: '13px', color: 'var(--cyan)', fontWeight: '700' }}>
             {locationStatus === "granted" ? "Nearest First 📍" : "Standard View 👁️"}
@@ -535,7 +423,19 @@ export default function PatientSearchPage() {
         </div>
 
         <div className="doctor-container">
-          {filteredDoctors.length === 0 ? (
+          {loading ? (
+            // 🔥 Fix 3: Show skeleton loaders instead of blank page
+            [1, 2, 3].map((n) => (
+              <div key={n} className="doctor-card" style={{ display: 'flex', gap: '16px', border: '1px solid #e2e8f0' }}>
+                <div className="skeleton" style={{ width: '72px', height: '72px', borderRadius: '18px' }}></div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', justifyContent: 'center' }}>
+                  <div className="skeleton" style={{ width: '60%', height: '16px' }}></div>
+                  <div className="skeleton" style={{ width: '40%', height: '12px' }}></div>
+                  <div className="skeleton" style={{ width: '80%', height: '12px', marginTop: '4px' }}></div>
+                </div>
+              </div>
+            ))
+          ) : filteredDoctors.length === 0 ? (
             <div className="empty-state">
               No doctors found matching your criteria.<br />
               <span style={{ fontSize: '12px', marginTop: '8px', display: 'block' }}>Try adjusting filters or distance.</span>
@@ -546,8 +446,6 @@ export default function PatientSearchPage() {
               const clinicName = primaryClinic?.name || "Independent Clinic";
               const fee = primaryClinic?.consultation_fee || 0;
               const targetSlug = primaryClinic?.slug || primaryClinic?.id || doc.id;
-
-              // Fallback Data
               const exp = doc.experience_years || 5; 
               const rating = 4.8; 
 
@@ -570,7 +468,6 @@ export default function PatientSearchPage() {
                         <div className="rating">⭐ {rating}</div>
                       </div>
 
-                      {/* GPS & Distance Badge Info Area */}
                       <div style={{ marginTop: '10px', fontSize: '13px', color: 'var(--slate-500)', lineHeight: '1.6', fontWeight: '500' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                           {locationStatus === "granted" && doc.calculated_distance! > 0 ? (
@@ -584,12 +481,10 @@ export default function PatientSearchPage() {
                           )}
                           <span>• {clinicName}</span>
 
-                          {/* Navigation Button inside Card */}
                           {primaryClinic?.latitude && primaryClinic?.longitude && (
                             <a 
                               href={`https://www.google.com/maps/dir/?api=1&destination=${primaryClinic.latitude},${primaryClinic.longitude}`} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
+                              target="_blank" rel="noopener noreferrer"
                               style={{ marginLeft: 'auto', fontSize: '12px', color: '#3b82f6', fontWeight: '700', textDecoration: 'none' }}
                             >
                               Directions ↗
@@ -612,10 +507,7 @@ export default function PatientSearchPage() {
                         <div style={{ fontWeight: '700', fontSize: '13px', color: 'var(--slate-800)' }}>Available Today</div>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => handleProtectedAction(`/clinic/${targetSlug}`)}
-                      className="book-btn"
-                    >
+                    <button onClick={() => handleProtectedAction(`/clinic/${targetSlug}`)} className="book-btn">
                       Book <span style={{ fontSize: '16px', marginLeft: '2px' }}>→</span>
                     </button>
                   </div>
@@ -624,9 +516,7 @@ export default function PatientSearchPage() {
             })
           )}
         </div>
-
       </div>
-
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} redirectPath="/patient/search" />
     </>
   );
