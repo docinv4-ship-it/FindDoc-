@@ -18,7 +18,6 @@ export default function Header() {
     let channel: any;
 
     const initHeaderData = async () => {
-      // 1. Safe FCM Push Token Registration
       try {
         if (typeof window !== "undefined" && "Notification" in window) {
           requestAndSaveFCMToken();
@@ -27,13 +26,11 @@ export default function Header() {
         console.warn("FCM registration skipped:", err);
       }
 
-      // 2. Get Authenticated User
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
       const authUserId = session.user.id;
 
-      // 3. Resolve Patient Profile ID
       const { data: patientData, error: patientError } = await supabase
         .from("patients")
         .select("id")
@@ -45,9 +42,7 @@ export default function Header() {
       const pId = patientData.id;
       setPatientId(pId);
 
-      // 4. Fetch Exact Unread Count & Latest Notifications (Enterprise Approach)
       const fetchNotificationState = async () => {
-        // A. Get exact unread count from Database directly
         const { count } = await supabase
           .from("notifications")
           .select("*", { count: "exact", head: true })
@@ -57,7 +52,6 @@ export default function Header() {
 
         setUnreadCount(count || 0);
 
-        // B. Get top 5 latest for dropdown display
         const { data } = await supabase
           .from("notifications")
           .select("*")
@@ -71,19 +65,17 @@ export default function Header() {
 
       await fetchNotificationState();
 
-      // 5. Setup Realtime Listener (Syncs globally across the app)
       channel = supabase
         .channel(`global_header_notifs_${pId}`)
         .on(
           "postgres_changes",
           {
-            event: "*", // Listens for INSERT, UPDATE (Mark Read), DELETE
+            event: "*", 
             schema: "public",
             table: "notifications",
             filter: `user_id=eq.${pId}`,
           },
           () => {
-            // Re-fetch count and list when ANY change happens anywhere in the app
             fetchNotificationState();
           }
         )
@@ -97,7 +89,6 @@ export default function Header() {
     };
   }, [supabase]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -108,9 +99,7 @@ export default function Header() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Mark single notification as read from dropdown
   const markAsRead = async (id: string) => {
-    // Optimistic UI update for instant feel
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
     setUnreadCount((prev) => Math.max(0, prev - 1));
 
@@ -120,11 +109,9 @@ export default function Header() {
       .eq("id", id);
   };
 
-  // Mark all notifications as read from dropdown
   const markAllAsRead = async () => {
     if (!patientId || unreadCount === 0) return;
 
-    // Optimistic UI update
     setUnreadCount(0);
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
 
@@ -136,9 +123,17 @@ export default function Header() {
       .eq("is_read", false);
   };
 
+  // ✅ Fix: Handle Click Auto-Removes Badge instantly
+  const handleNotificationClick = () => {
+    setIsOpen(!isOpen);
+    // Jab user dropdown open kare aur unread notifications hon, to badge foran clear kar do
+    if (!isOpen && unreadCount > 0) {
+      markAllAsRead(); 
+    }
+  };
+
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-gray-100 px-5 py-3.5 flex justify-between items-center">
-      {/* Brand Logo */}
       <Link href="/patient" className="flex items-center gap-2">
         <div className="w-7 h-7 rounded-lg bg-cyan-500 flex items-center justify-center text-white shadow-sm shadow-cyan-100">
           <Stethoscope className="w-4 h-4" />
@@ -148,23 +143,22 @@ export default function Header() {
         </span>
       </Link>
 
-      {/* Right Actions */}
       <div className="flex items-center gap-2 relative" ref={dropdownRef}>
-        {/* BELL ICON BUTTON */}
+        
+        {/* ✅ Fix: Bell icon visibility and precise badge positioning */}
         <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="relative p-2 rounded-xl text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-all border border-transparent hover:border-gray-100"
+          onClick={handleNotificationClick}
+          className="relative flex items-center justify-center w-10 h-10 rounded-xl text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-all border border-transparent hover:border-gray-100"
           aria-label="Notifications"
         >
-          <Bell className="w-4 h-4" />
+          <Bell className="w-5 h-5" />
           {unreadCount > 0 && (
-            <span className="absolute top-1.5 right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-medium flex items-center justify-center ring-2 ring-white">
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white z-10 shadow-sm">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           )}
         </button>
 
-        {/* NOTIFICATION POPUP DROPDOWN */}
         {isOpen && (
           <div className="absolute right-0 top-12 w-80 bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="p-3.5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
@@ -172,20 +166,7 @@ export default function Header() {
                 <span className="font-medium text-[13px] text-gray-800">
                   Notifications
                 </span>
-                {unreadCount > 0 && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-50 text-cyan-600 border border-cyan-100">
-                    {unreadCount} new
-                  </span>
-                )}
               </div>
-              {unreadCount > 0 && (
-                <button
-                  onClick={markAllAsRead}
-                  className="text-[11px] font-medium text-cyan-600 hover:text-cyan-700 flex items-center gap-1 transition-colors"
-                >
-                  <Check className="w-3 h-3" /> Mark all read
-                </button>
-              )}
             </div>
 
             <div className="max-h-72 overflow-y-auto divide-y divide-gray-50">
@@ -226,7 +207,6 @@ export default function Header() {
               )}
             </div>
 
-            {/* View All Notifications Page Link */}
             <div className="p-2.5 bg-gray-50/50 border-t border-gray-100 text-center">
               <Link
                 href="/patient/notifications"
@@ -239,7 +219,6 @@ export default function Header() {
           </div>
         )}
 
-        {/* PROFILE LINK */}
         <Link
           href="/patient/profile"
           className="p-2 rounded-xl text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-all border border-transparent hover:border-gray-100"
