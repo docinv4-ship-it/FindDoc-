@@ -1,169 +1,59 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-interface StartChatPayload {
-  doctor_id: string;
-  clinic_id: string;
-  patient_name: string;
-  patient_email?: string;
-  patient_user_id?: string;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
+    const { data: { user: authUser } } = await supabase.auth.getUser();
 
-    // 1. Authenticate Request via Supabase Auth Session
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
+    const body = await request.json();
+    const { doctor_id, clinic_id, patient_name, patient_email, patient_user_id, appointment_id } = body;
 
-    const body: StartChatPayload = await request.json();
-    const { doctor_id, clinic_id, patient_name, patient_email, patient_user_id } = body;
-
-    // 2. Strict Payload Sanity Check
     if (!doctor_id || !clinic_id || !patient_name?.trim()) {
-      return NextResponse.json(
-        { error: "Doctor ID, Clinic ID, and Patient Name are required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Required fields missing." }, { status: 400 });
     }
 
     const effectiveEmail = authUser?.email || patient_email?.trim() || null;
     const effectiveUserId = authUser?.id || patient_user_id || null;
 
-    // 3. Verify Doctor & Clinic
-    const { data: clinic, error: clinicError } = await supabase
-      .from("clinics")
-      .select("id, doctor_id")
-      .eq("id", clinic_id)
-      .eq("doctor_id", doctor_id)
-      .maybeSingle();
-
-    if (clinicError || !clinic) {
-      return NextResponse.json(
-        { error: "Invalid doctor or clinic location specified." },
-        { status: 404 }
-      );
-    }
-
-    // 4. Resolve Patient Identity (Safe DB Lookup & Insert)
     let patientId: string | null = null;
-
     if (effectiveUserId) {
-      const { data: patientById } = await supabase
-        .from("patients")
-        .select("id")
-        .eq("id", effectiveUserId)
-        .maybeSingle();
-
-      if (patientById) {
-        patientId = patientById.id;
-      }
+      const { data: p } = await supabase.from("patients").select("id").eq("id", effectiveUserId).maybeSingle();
+      if (p) patientId = p.id;
     }
 
     if (!patientId && effectiveEmail) {
-      const { data: existingPatient } = await supabase
-        .from("patients")
-        .select("id")
-        .eq("email", effectiveEmail)
-        .maybeSingle();
-
-      if (existingPatient) {
-        patientId = existingPatient.id;
-      } else {
-        // Safe insert: Default phone fallback to prevent NOT NULL constraint error
-        const { data: newPatient, error: createPatientError } = await supabase
-          .from("patients")
-          .insert({
-            full_name: patient_name.trim(),
-            email: effectiveEmail,
-            phone: "N/A",
-            is_guest: !authUser,
-          })
-          .select("id")
-          .single();
-
-        if (createPatientError) {
-          console.error("[Chat API] Patient creation failed:", createPatientError);
-          return NextResponse.json(
-            { error: `DB Patient Error: ${createPatientError.message}` },
-            { status: 500 }
-          );
-        }
-        patientId = newPatient.id;
+      const { data: exist } = await supabase.from("patients").select("id").eq("email", effectiveEmail).maybeSingle();
+      if (exist) patientId = exist.id;
+      else {
+        const { data: newP, error: errP } = await supabase.from("patients").insert({
+          full_name: patient_name.trim(), email: effectiveEmail, phone: "N/A", is_guest: !authUser
+        }).select("id").single();
+        if (errP) return NextResponse.json({ error: errP.message }, { status: 500 });
+        patientId = newP.id;
       }
     }
 
-    if (!patientId) {
-      return NextResponse.json(
-        { error: "Authentication or valid email required to start chat." },
-        { status: 401 }
-      );
-    }
+    if (!patientId) return NextResponse.json({ error: "Auth required." }, { status: 401 });
 
-    // 5. Existing Active Conversation Check
-    const { data: existingConvo } = await supabase
-      .from("conversations")
-      .select("id, status")
-      .eq("clinic_id", clinic_id)
-      .eq("doctor_id", doctor_id)
-      .eq("patient_id", patientId)
-      .maybeSingle();
+    const { data: existingConvo } = await supabase.from("conversations")
+      .select("id, status").eq("clinic_id", clinic_id).eq("doctor_id", doctor_id).eq("patient_id", patientId).maybeSingle();
 
     if (existingConvo) {
-      return NextResponse.json({
-        conversation_id: existingConvo.id,
-        patient_id: patientId,
-        status: existingConvo.status,
-        existing: true,
-      });
+      // If we are coming from a new confirmed appointment, we might optionally want to send an auto-message here.
+      return NextResponse.json({ conversation_id: existingConvo.id, patient_id: patientId, status: existingConvo.status, existing: true });
     }
 
-    // 6. Create New Conversation Session
-    const { data: conversation, error: convoError } = await supabase
-      .from("conversations")
-      .insert({
-        clinic_id,
-        doctor_id,
-        patient_id: patientId,
-        patient_name: patient_name.trim(),
-        patient_email: effectiveEmail,
-        status: "active",
-        last_message_at: new Date().toISOString(),
-        last_message_preview: "Welcome to our clinic! How can we help you today?",
-      })
-      .select("id")
-      .single();
+    // CREATE NEW SYSTEM THREAD
+    const { data: convo, error: convoErr } = await supabase.from("conversations").insert({
+      clinic_id, doctor_id, patient_id: patientId, patient_name: patient_name.trim(), patient_email: effectiveEmail,
+      status: "active", last_message_at: new Date().toISOString(), last_message_preview: "Appointment confirmed session started."
+    }).select("id").single();
 
-    if (convoError || !conversation) {
-      console.error("[Chat API] Conversation creation error:", convoError);
-      return NextResponse.json(
-        { error: `DB Conversation Error: ${convoError?.message || "Failed to create session"}` },
-        { status: 500 }
-      );
-    }
+    if (convoErr || !convo) return NextResponse.json({ error: "Failed to create session." }, { status: 500 });
 
-    // 7. Initial Welcome Message
-    const welcomeMessage = `Hello ${patient_name.trim()}! Welcome to our clinic. How can we help you today?`;
-
-    await supabase.from("messages").insert({
-      conversation_id: conversation.id,
-      sender_id: doctor_id,
-      sender_type: "doctor",
-      content: welcomeMessage,
-      is_read: false,
-    });
-
-    return NextResponse.json({
-      conversation_id: conversation.id,
-      patient_id: patientId,
-      welcome_message: welcomeMessage,
-      existing: false,
-    });
-  } catch (error: unknown) {
-    const err = error instanceof Error ? error.message : "Unknown fatal error";
-    console.error("[Chat API Fatal Exception]:", err);
-    return NextResponse.json({ error: `Server Error: ${err}` }, { status: 500 });
+    return NextResponse.json({ conversation_id: convo.id, patient_id: patientId, existing: false });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
