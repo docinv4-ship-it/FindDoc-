@@ -23,11 +23,9 @@ interface DoctorWithClinic extends Doctor {
   calculated_distance?: number;
 }
 
-// --- THE BRAIN: Haversine Distance Calculator (Earth's Curvature Math) ---
-// Now highly optimized to only run when strictly necessary
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
-  const R = 6371; // Earth's radius in KM
+  const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -44,17 +42,14 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 export default function PatientSearchPage() {
   const [loading, setLoading] = useState(true);
   const [doctors, setDoctors] = useState<DoctorWithClinic[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [user, setUser] = useState<any>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // --- Real-time Geolocation States ---
   const [patientLocation, setPatientLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState<"detecting" | "granted" | "denied">("detecting");
 
-  // --- Real-time Filter States ---
   const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState(""); // 🔥 Fix 2: Debounce State
+  const [debouncedQuery, setDebouncedQuery] = useState(""); 
   const [isDistanceEnabled, setIsDistanceEnabled] = useState(false);
   const [maxDistance, setMaxDistance] = useState<number>(10); 
   const [isPriceEnabled, setIsPriceEnabled] = useState(false);
@@ -64,18 +59,15 @@ export default function PatientSearchPage() {
   const router = useRouter();
   const filterPanelRef = useRef<HTMLDivElement>(null);
   const filterBtnRef = useRef<HTMLButtonElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = createClient();
 
-  // 🔥 Fix 2: Implement Debounce (Prevents UI freeze on every keystroke)
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(searchQuery);
-    }, 300); // 300ms lightning fast delay
+    }, 300); 
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // --- 1. Detect Patient Location on Load ---
   useEffect(() => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -90,7 +82,6 @@ export default function PatientSearchPage() {
           console.warn("Patient denied location or error:", error);
           setLocationStatus("denied");
         },
-        // Timeout reduced to 5000ms so UI doesn't hang waiting for slow GPS
         { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
       );
     } else {
@@ -98,24 +89,28 @@ export default function PatientSearchPage() {
     }
   }, []);
 
-  // --- 2. Fetch Real Data From Supabase ---
+  // ✅ Fix: Optimized Data Fetching (Removed Laziness)
+  // Ab Session aur Doctors data 'Promise.all' ke zariye ek sath (Parallel) fetch hoga
   useEffect(() => {
     const fetchDataAndSession = async () => {
       try {
         setLoading(true);
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          setUser(session.user);
-        }
-
-        console.log("🔍 Fetching doctors...");
-        const { data, error } = await supabase
+        
+        const sessionPromise = supabase.auth.getSession();
+        const doctorsPromise = supabase
           .from("doctors")
           .select(`*, clinics (id, slug, name, address, city, consultation_fee, latitude, longitude), featured_listings (status, expires_at)`)
           .eq("is_onboarded", true);
 
-        let doctorsData = data;
-        if (error || !data) {
+        // Dono network calls ko ek hi waqt mein fire karo speed barhane ke liye
+        const [sessionRes, doctorsRes] = await Promise.all([sessionPromise, doctorsPromise]);
+
+        if (sessionRes.data?.session?.user) {
+          setUser(sessionRes.data.session.user);
+        }
+
+        let doctorsData = doctorsRes.data;
+        if (doctorsRes.error || !doctorsData) {
           const fallback = await supabase.from("doctors").select(`*, clinics (id, slug, name, address, city, consultation_fee, latitude, longitude)`);
           doctorsData = fallback.data;
         }
@@ -137,7 +132,6 @@ export default function PatientSearchPage() {
     fetchDataAndSession();
   }, []);
 
-  // --- 3. Outside Click Handler for Filter Panel ---
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -151,7 +145,6 @@ export default function PatientSearchPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // 🔥 Fix 1A: Isolate Distance Calculation (Runs ONLY when Location/Data arrives)
   const doctorsWithDistance = useMemo(() => {
     return doctors.map(doc => {
       const primaryClinic = doc.clinics?.[0];
@@ -168,7 +161,6 @@ export default function PatientSearchPage() {
     });
   }, [doctors, patientLocation]);
 
-  // 🔥 Fix 1B: Filter Engine (Runs fast on Debounced Query)
   const filteredDoctors = useMemo(() => {
     let processedDocs = doctorsWithDistance.filter((doc) => {
       const fullName = doc.full_name || "";
@@ -202,7 +194,6 @@ export default function PatientSearchPage() {
     else router.push(targetPath);
   };
 
-  // 🔥 Fix 3: Remove Full-Page Blocking (UI loads instantly now)
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: `
@@ -313,7 +304,6 @@ export default function PatientSearchPage() {
         }
         .empty-state { text-align: center; padding: 40px 20px; color: var(--slate-500); font-weight: 500; }
 
-        /* 🔥 Skeleton Loader CSS */
         .skeleton { background: #e2e8f0; border-radius: 8px; overflow: hidden; position: relative; }
         .skeleton::after {
           content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
@@ -324,7 +314,6 @@ export default function PatientSearchPage() {
       `}} />
 
       <div className="next-gen-wrapper">
-        {/* Sticky Header loads instantly now */}
         <div className="sticky-header">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h1 style={{ fontSize: '24px', fontWeight: '800', letterSpacing: '-0.5px', margin: 0 }}>Find Doctors</h1>
@@ -350,7 +339,6 @@ export default function PatientSearchPage() {
               {activeCount > 0 && <div className="filter-badge" style={{ display: 'flex' }}>{activeCount}</div>}
             </button>
 
-            {/* Smart Dropdown Filter Panel */}
             {isFilterPanelOpen && (
               <div className="filter-panel" ref={filterPanelRef} style={{ display: 'block' }}>
                 <div className="filter-group">
@@ -397,7 +385,6 @@ export default function PatientSearchPage() {
           </div>
         </div>
 
-        {/* Live GPS Status Banner */}
         <div style={{ padding: '0 20px', marginTop: '20px' }}>
           <div style={{ background: 'var(--slate-900)', color: 'white', padding: '12px 16px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
             <span style={{ position: 'relative', display: 'flex', width: '10px', height: '10px' }}>
@@ -412,7 +399,6 @@ export default function PatientSearchPage() {
           </div>
         </div>
 
-        {/* Results Area */}
         <div className="results-header">
           <span style={{ fontSize: '13px', color: 'var(--slate-500)', fontWeight: '600' }}>
             Showing {loading ? '...' : filteredDoctors.length} doctors
@@ -424,7 +410,6 @@ export default function PatientSearchPage() {
 
         <div className="doctor-container">
           {loading ? (
-            // 🔥 Fix 3: Show skeleton loaders instead of blank page
             [1, 2, 3].map((n) => (
               <div key={n} className="doctor-card" style={{ display: 'flex', gap: '16px', border: '1px solid #e2e8f0' }}>
                 <div className="skeleton" style={{ width: '72px', height: '72px', borderRadius: '18px' }}></div>
